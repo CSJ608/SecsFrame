@@ -14,6 +14,10 @@ permissions:
 
 jobs:
   analyze:
+    # GitHub code scanning is unavailable for private repositories without GHAS.
+    # Keeping the workflow dormant here makes it take effect automatically if
+    # the repository is made public later.
+    if: github.event.repository.visibility == 'public'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
