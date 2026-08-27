@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SecsFrame/SecsFrame.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/SecsFrame.Tests/SecsFrame.Tests.csproj" />
+  </Folder>
+</Solution>
