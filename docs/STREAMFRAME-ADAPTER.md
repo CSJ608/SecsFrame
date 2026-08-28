@@ -2,13 +2,19 @@
 
 ## 上游基线
 
-SecsFrame 固定依赖官方 [StreamFrame 2.3.0](https://www.nuget.org/packages/StreamFrame/2.3.0)。
-该版本已经发布并解决此前跟踪的两项能力缺口：
+SecsFrame 固定依赖官方 [StreamFrame 2.3.1](https://www.nuget.org/packages/StreamFrame/2.3.1)。
+2.3.0 已经解决此前跟踪的两项能力缺口：
 
 - [#38](https://github.com/CSJ608/StreamFrame/issues/38) / [PR #41](https://github.com/CSJ608/StreamFrame/pull/41)：
   未完成帧超时与 <code>IncompleteFrameTimeout</code> 诊断；
 - [#39](https://github.com/CSJ608/StreamFrame/issues/39) / [PR #42](https://github.com/CSJ608/StreamFrame/pull/42)：
   会话编号、会话绑定发送、写出确认和带会话归属的接收消息。
+
+2.3.1 在相同公共 API 上修复两个会话隔离缺陷：过期会话的迟到故障不会
+再发布 Retry 或清零活会话编号；发送 worker 会再次校验排队条目的 Session
+ID，残留的旧会话绑定消息以 <code>SessionExpiredException</code> 结束且
+不会写入新 Socket。停机、Socket 释放及会话故障竞态也统一收敛到该异常
+边界。详见 [2.3.1 发布说明](https://github.com/CSJ608/StreamFrame/releases/tag/v2.3.1)。
 
 SecsFrame 不再维护基于原始字节回调的 T8 监视器、发送确认计数器、会话
 信封 codec 或自建 TCP Session ID。公共 API 和内部
@@ -37,6 +43,9 @@ StreamFrame 的 <code>SessionExpiredException</code> 在内部边界转换为
 <code>HsmsTransportSessionExpiredException</code>，并保留原异常。协议
 主动关闭或 T8 关闭时，适配器按 TCP Session ID 保留首个关闭原因，使
 <code>SessionClosed</code> 与尚未完成的发送观察到同一个协议异常。
+当前会话的 <code>Reconnect</code> 与 transport 释放还通过独立生命周期
+边界串行化：释放先阻止新的关闭请求，再等待已经开始的重连结束，避免 actor
+清空迟到 Separate 输入时访问已释放的 StreamFrame 生命周期。
 
 ## T5 与 T8
 
@@ -60,11 +69,11 @@ StreamFrame 只在已有未完成帧时运行该超时：空闲连接和完整�
 ## 验证边界
 
 适配器单元测试覆盖原生 Session ID、迟到消息、发送完成、并发入队、会话
-失效、显式关闭原因和 T8 诊断映射。真实 TCP 回环测试覆盖分片帧收发与
-实际 T8 到期；完整套件继续覆盖 T3/T6 从发送完成点启动以及旧会话不
-重放。
+失效、显式关闭原因、关闭/释放竞态和 T8 诊断映射。真实 TCP 回环测试覆盖
+分片帧收发、实际 T8 到期，以及会话替换时排队发送的精确失效与新 Socket
+内容隔离；完整套件继续覆盖 T3/T6 从发送完成点启动以及旧会话不重放。
 
-这些测试证明当前工程契约与 StreamFrame 2.3.0 的互操作行为，不构成
+这些测试证明当前工程契约与 StreamFrame 2.3.1 的互操作行为，不构成
 SEMI 合规声明。T5/T8 的标准默认值、精确启停边界和异常恢复仍须依据团队
 合法获得的 SEMI E37/E37.1 版本及一致性测试核对。仓库不得提交标准正文、
 表格或 Schema。

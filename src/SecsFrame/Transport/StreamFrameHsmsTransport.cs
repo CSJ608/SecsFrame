@@ -11,8 +11,10 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
     private readonly ISessionAwareStreamConnection<HsmsFrame> _connection;
     private readonly Channel<HsmsTransportEvent> _events;
 #if NET9_0_OR_GREATER
+    private readonly Lock _lifecycleGate = new();
     private readonly Lock _sessionGate = new();
 #else
+    private readonly object _lifecycleGate = new();
     private readonly object _sessionGate = new();
 #endif
     private readonly Dictionary<long, SessionContext> _sessions = new();
@@ -130,6 +132,11 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
+        lock (_lifecycleGate)
+        {
+            // Wait for an already-started Reconnect before disposing its lifetime state.
+        }
+
         await _connection.DisposeAsync().ConfigureAwait(false);
 
         if (_messagePump is not null)
@@ -153,33 +160,37 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
         Exception? error = null)
     {
         ThrowIfDisposed();
-
-        Exception? previousReason;
-        lock (_sessionGate)
+        lock (_lifecycleGate)
         {
-            if (_currentSessionId != sessionId.Value ||
-                _connection.CurrentSessionId != sessionId.Value ||
-                !_sessions.TryGetValue(sessionId.Value, out var context) ||
-                context.IsClosed)
+            ThrowIfDisposed();
+
+            Exception? previousReason;
+            lock (_sessionGate)
             {
-                return false;
+                if (_currentSessionId != sessionId.Value ||
+                    _connection.CurrentSessionId != sessionId.Value ||
+                    !_sessions.TryGetValue(sessionId.Value, out var context) ||
+                    context.IsClosed)
+                {
+                    return false;
+                }
+
+                previousReason = context.CloseReason;
+                if (error is not null && context.CloseReason is null)
+                    context.CloseReason = error;
             }
 
-            previousReason = context.CloseReason;
-            if (error is not null && context.CloseReason is null)
-                context.CloseReason = error;
-        }
-
-        try
-        {
-            _connection.Reconnect();
-            return true;
-        }
-        catch
-        {
-            if (error is not null)
-                RestoreCloseReason(sessionId, error, previousReason);
-            throw;
+            try
+            {
+                _connection.Reconnect();
+                return true;
+            }
+            catch
+            {
+                if (error is not null)
+                    RestoreCloseReason(sessionId, error, previousReason);
+                throw;
+            }
         }
     }
 

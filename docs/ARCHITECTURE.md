@@ -53,17 +53,20 @@ HSMS 会话切换后，旧会话的控制请求、数据事务和等待中的应
 <code>IHsmsTransport</code> 使用单一事件流按 Session ID 报告会话打开、
 帧到达和会话关闭。<code>StreamFrameHsmsTransport</code> 已在内部实现：
 
-- 直接采用 StreamFrame 2.3.0 的单调 TCP Session ID；
+- 直接采用 StreamFrame 2.3.1 的单调 TCP Session ID；
 - 通过会话感知接收流保留帧的原始 Session ID，迟到消费不会被标成新会话；
 - 会话绑定发送在 StreamFrame 原生 FIFO 中校验 Session ID，旧会话消息
   不会重放，整帧写入本机 Socket 后才完成；
+- 当前会话关闭/重连与 transport 释放串行化，迟到 actor 输入不会访问已
+  释放的 StreamFrame 生命周期；
 - Active 连接把显式 T5 映射为固定 StreamFrame 重试间隔，关闭指数退避；
 - 显式 T8 映射为 StreamFrame 原生未完成帧超时，并把对应 FrameError
   转换为带 transport Session ID 的 HSMS 关闭原因。
 
 这些能力仍隔离在 <code>IHsmsTransport</code> 后，不进入公共 API。此前
-跟踪的 StreamFrame #38/#39 已在 2.3.0 完成迁移；SecsFrame 只保留
-协议关闭原因和异常边界转换。详细失效模式与验证证据见
+跟踪的 StreamFrame #38/#39 已在 2.3.0 完成迁移，2.3.1 进一步封闭迟到
+旧故障污染活会话和排队消息跨 Socket 错发的竞态；SecsFrame 只保留协议
+关闭原因和异常边界转换。详细失效模式与验证证据见
 [STREAMFRAME-ADAPTER.md](STREAMFRAME-ADAPTER.md)。
 
 ### 单线程会话状态机

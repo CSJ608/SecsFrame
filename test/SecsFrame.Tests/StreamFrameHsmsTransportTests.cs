@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Net;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
@@ -256,6 +257,46 @@ public sealed class StreamFrameHsmsTransportTests
     }
 
     [Fact]
+    public async Task Dispose_waits_for_inflight_session_close()
+    {
+        var connection = new FakeStreamConnection { BlockReconnect = true };
+        var transport = CreateTransport(connection);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var events = transport.GetEventsAsync(cancellation.Token).GetAsyncEnumerator();
+        transport.Start(cancellation.Token);
+        connection.RaiseState(ConnectionState.Connected);
+        var opened = await NextAsync(events).ConfigureAwait(true);
+
+        var close = Task.Factory.StartNew(
+            () => transport.TryCloseSession(opened.SessionId),
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+        var started = await Task.WhenAny(
+            connection.ReconnectStarted,
+            Task.Delay(TimeSpan.FromSeconds(2), cancellation.Token)).ConfigureAwait(true);
+        if (!ReferenceEquals(connection.ReconnectStarted, started))
+        {
+            connection.ReleaseReconnect();
+            Assert.Same(connection.ReconnectStarted, started);
+        }
+
+        var dispose = Task.Factory.StartNew(
+            () => transport.DisposeAsync().AsTask(),
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default).Unwrap();
+        await Task.Delay(TimeSpan.FromMilliseconds(50), cancellation.Token).ConfigureAwait(true);
+        var disposeWaitedForClose = !dispose.IsCompleted;
+        connection.ReleaseReconnect();
+
+        Assert.True(await close.ConfigureAwait(true));
+        await dispose.ConfigureAwait(true);
+        Assert.True(disposeWaitedForClose);
+        await events.DisposeAsync().ConfigureAwait(true);
+    }
+
+    [Fact]
     public async Task Real_streamframe_connection_sends_and_receives_fragmented_frame()
     {
         var port = GetFreePort();
@@ -356,9 +397,105 @@ public sealed class StreamFrameHsmsTransportTests
         await events.DisposeAsync().ConfigureAwait(true);
     }
 
+    [Fact]
+    public async Task Real_streamframe_replacement_expires_queued_send_without_replay()
+    {
+        var port = GetFreePort();
+        var codec = new ControlledEncodeCodec();
+        await using var transport = CreateControlledTransport(port, codec);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var events = transport.GetEventsAsync(cancellation.Token).GetAsyncEnumerator();
+        transport.Start(cancellation.Token);
+
+        using var firstClient = new System.Net.Sockets.TcpClient();
+        await firstClient.ConnectAsync(IPAddress.Loopback, port).ConfigureAwait(true);
+        var firstOpened = await NextAsync(events).ConfigureAwait(true);
+        await SendAndReadAsync(
+            transport,
+            firstOpened.SessionId,
+            firstClient,
+            0x01,
+            cancellation.Token).ConfigureAwait(true);
+        codec.BlockNextEncode();
+        var inFlight = transport.SendAsync(
+            firstOpened.SessionId,
+            CreateFrame(new byte[] { 0x11 }),
+            cancellation.Token).AsTask();
+        var encodeStarted = await Task.WhenAny(
+            codec.BlockedEncodeStarted,
+            Task.Delay(TimeSpan.FromSeconds(5), cancellation.Token)).ConfigureAwait(true);
+        Assert.Same(codec.BlockedEncodeStarted, encodeStarted);
+
+        var queued = transport.SendAsync(
+            firstOpened.SessionId,
+            CreateFrame(new byte[] { 0x12 }),
+            cancellation.Token).AsTask();
+
+        Assert.True(transport.TryCloseSession(firstOpened.SessionId));
+        var firstClosed = await NextAsync(events).ConfigureAwait(true);
+        var queuedException = await Assert.ThrowsAsync<HsmsTransportSessionExpiredException>(
+            async () => await queued.ConfigureAwait(true)).ConfigureAwait(true);
+        Assert.IsType<SessionExpiredException>(queuedException.InnerException);
+        Assert.NotNull(await Record.ExceptionAsync(
+            async () => await inFlight.ConfigureAwait(true)).ConfigureAwait(true));
+        Assert.Equal(HsmsTransportEventKind.SessionClosed, firstClosed.Kind);
+        Assert.Equal(firstOpened.SessionId, firstClosed.SessionId);
+
+        firstClient.Dispose();
+        using var secondClient = new System.Net.Sockets.TcpClient();
+        await secondClient.ConnectAsync(IPAddress.Loopback, port).ConfigureAwait(true);
+        var secondOpened = await NextAsync(events).ConfigureAwait(true);
+        Assert.True(secondOpened.SessionId.Value > firstOpened.SessionId.Value);
+
+        var currentBytes = await SendAndReadAsync(
+            transport,
+            secondOpened.SessionId,
+            secondClient,
+            0x22,
+            cancellation.Token).ConfigureAwait(true);
+
+        Assert.Equal(0x22, currentBytes[currentBytes.Length - 1]);
+        await events.DisposeAsync().ConfigureAwait(true);
+    }
+
     private static StreamFrameHsmsTransport CreateTransport(
         FakeStreamConnection connection)
         => new(connection);
+
+    private static StreamFrameHsmsTransport CreateControlledTransport(
+        int port,
+        ICodec<HsmsFrame> codec)
+        => new(
+            new StreamConnection<HsmsFrame>(
+                new HsmsFramer(),
+                codec,
+                IPAddress.Loopback,
+                port,
+                isActive: false,
+                new StreamConnectionOptions
+                {
+                    AcceptRetryDelayMs = 10,
+                    ConnectRetryDelayMs = 10,
+                }));
+
+    private static async Task<byte[]> SendAndReadAsync(
+        StreamFrameHsmsTransport transport,
+        HsmsTransportSessionId sessionId,
+        System.Net.Sockets.TcpClient client,
+        byte body,
+        CancellationToken cancellationToken)
+    {
+        var send = transport.SendAsync(
+            sessionId,
+            CreateFrame(new[] { body }),
+            cancellationToken).AsTask();
+        var bytes = await ReadExactlyAsync(
+            client.GetStream(),
+            HsmsFramer.LengthPrefixSize + HsmsMessageHeader.EncodedSize + 1,
+            cancellationToken).ConfigureAwait(true);
+        await send.ConfigureAwait(true);
+        return bytes;
+    }
 
     private static int GetFreePort()
     {
@@ -420,6 +557,39 @@ public sealed class StreamFrameHsmsTransportTests
         return events.Current;
     }
 
+    private sealed class ControlledEncodeCodec : ICodec<HsmsFrame>
+    {
+        private readonly HsmsFrameCodec _inner = new();
+        private readonly TaskCompletionSource<bool> _blockedEncodeStarted = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _blockNextEncode;
+
+        public Task BlockedEncodeStarted => _blockedEncodeStarted.Task;
+
+        public void BlockNextEncode()
+            => Interlocked.Exchange(ref _blockNextEncode, 1);
+
+        public HsmsFrame Decode(
+            in ReadOnlySequence<byte> frame,
+            CancellationToken ct = default)
+            => _inner.Decode(in frame, ct);
+
+        public void Encode(
+            HsmsFrame message,
+            IBufferWriter<byte> writer,
+            CancellationToken ct = default)
+        {
+            if (Interlocked.Exchange(ref _blockNextEncode, 0) != 0)
+            {
+                _blockedEncodeStarted.TrySetResult(true);
+                ct.WaitHandle.WaitOne();
+                ct.ThrowIfCancellationRequested();
+            }
+
+            _inner.Encode(message, writer, ct);
+        }
+    }
+
     private sealed class FakeStreamConnection : ISessionAwareStreamConnection<HsmsFrame>
     {
         private readonly Channel<SessionMessage<HsmsFrame>> _messages =
@@ -430,7 +600,12 @@ public sealed class StreamFrameHsmsTransportTests
         private readonly object _gate = new();
 #endif
         private readonly List<PendingSessionSend> _sent = new();
+        private readonly TaskCompletionSource<bool> _continueReconnect = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _reconnectStarted = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         private long _sessionCounter;
+        private int _disposed;
 
         public ConnectionState State { get; private set; } = ConnectionState.Connecting;
 
@@ -447,6 +622,10 @@ public sealed class StreamFrameHsmsTransportTests
         public int ReconnectCount { get; private set; }
 
         public int OrdinarySendCount { get; private set; }
+
+        public bool BlockReconnect { get; init; }
+
+        public Task ReconnectStarted => _reconnectStarted.Task;
 
         public int SentCount
         {
@@ -472,8 +651,22 @@ public sealed class StreamFrameHsmsTransportTests
         public void Reconnect()
         {
             ReconnectCount++;
+            if (BlockReconnect)
+            {
+                _reconnectStarted.TrySetResult(true);
+                _continueReconnect.Task.GetAwaiter().GetResult();
+                if (Volatile.Read(ref _disposed) != 0)
+                {
+                    throw new InvalidOperationException(
+                        "The connection was disposed during Reconnect.");
+                }
+            }
+
             RaiseState(ConnectionState.Retry);
         }
+
+        public void ReleaseReconnect()
+            => _continueReconnect.TrySetResult(true);
 
         public Task WaitForConnectedAsync(CancellationToken ct = default)
             => Task.CompletedTask;
@@ -532,6 +725,7 @@ public sealed class StreamFrameHsmsTransportTests
 
         public ValueTask DisposeAsync()
         {
+            Interlocked.Exchange(ref _disposed, 1);
             RaiseState(ConnectionState.Disconnected);
             _messages.Writer.TryComplete();
             return default;
