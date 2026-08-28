@@ -17,6 +17,9 @@ StreamFrame 运输适配、HSMS-SS 会话 actor 和数据事务 actor，调用�
 - 状态、数据、未消费控制消息和解码失败的单消费者异步事件流。
 
 Host/Equipment 是后续业务能力角色，不由 Active/Passive 推断。
+需要按运行期 Stream/Function 处理 Primary 时，可在本事件流上组合
+<code>HsmsPrimaryRouter</code>；它不接管事件消费者，未匹配事件仍由应用
+处理。见 [HSMS-PRIMARY-ROUTING.md](HSMS-PRIMARY-ROUTING.md)。
 
 ## 显式配置
 
