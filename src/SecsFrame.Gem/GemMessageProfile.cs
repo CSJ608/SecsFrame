@@ -12,6 +12,46 @@ namespace SecsFrame.Gem;
 /// </remarks>
 public sealed class GemMessageProfile
 {
+    private static readonly GemMessagePair BaselineAlarmNotification =
+        new(5, 1, 2);
+
+    /// <summary>
+    /// Creates a foundational profile using the engineering-baseline alarm pair.
+    /// </summary>
+    public GemMessageProfile(
+        GemMessagePair establishCommunication,
+        GemMessagePair areYouOnline,
+        GemMessagePair requestOnline,
+        GemMessagePair requestOffline,
+        GemMessagePair readStatusVariables,
+        GemMessagePair readEquipmentConstants,
+        GemMessagePair getClock,
+        GemMessagePair setClock,
+        GemMessagePair defineReports,
+        GemMessagePair linkEventReports,
+        GemMessagePair collectionEvent,
+        byte acceptedAcknowledgement,
+        byte failedAcknowledgement,
+        GemClockCodec clockCodec)
+        : this(
+            establishCommunication,
+            areYouOnline,
+            requestOnline,
+            requestOffline,
+            readStatusVariables,
+            readEquipmentConstants,
+            getClock,
+            setClock,
+            defineReports,
+            linkEventReports,
+            collectionEvent,
+            BaselineAlarmNotification,
+            acceptedAcknowledgement,
+            failedAcknowledgement,
+            clockCodec)
+    {
+    }
+
     /// <summary>Creates an explicit foundational message profile.</summary>
     public GemMessageProfile(
         GemMessagePair establishCommunication,
@@ -25,6 +65,7 @@ public sealed class GemMessageProfile
         GemMessagePair defineReports,
         GemMessagePair linkEventReports,
         GemMessagePair collectionEvent,
+        GemMessagePair alarmNotification,
         byte acceptedAcknowledgement,
         byte failedAcknowledgement,
         GemClockCodec clockCodec)
@@ -47,7 +88,8 @@ public sealed class GemMessageProfile
             setClock,
             defineReports,
             linkEventReports,
-            collectionEvent);
+            collectionEvent,
+            alarmNotification);
         EstablishCommunication = establishCommunication;
         AreYouOnline = areYouOnline;
         RequestOnline = requestOnline;
@@ -59,6 +101,7 @@ public sealed class GemMessageProfile
         DefineReports = defineReports;
         LinkEventReports = linkEventReports;
         CollectionEvent = collectionEvent;
+        AlarmNotification = alarmNotification;
         AcceptedAcknowledgement = acceptedAcknowledgement;
         FailedAcknowledgement = failedAcknowledgement;
         ClockCodec = clockCodec ?? throw new ArgumentNullException(nameof(clockCodec));
@@ -97,6 +140,9 @@ public sealed class GemMessageProfile
     /// <summary>Gets the Collection Event message pair.</summary>
     public GemMessagePair CollectionEvent { get; }
 
+    /// <summary>Gets the alarm-notification message pair.</summary>
+    public GemMessagePair AlarmNotification { get; }
+
     /// <summary>Gets the configured successful acknowledgement byte.</summary>
     public byte AcceptedAcknowledgement { get; }
 
@@ -122,6 +168,7 @@ public sealed class GemMessageProfile
             new GemMessagePair(2, 33, 34),
             new GemMessagePair(2, 35, 36),
             new GemMessagePair(6, 11, 12),
+            BaselineAlarmNotification,
             acceptedAcknowledgement: 0,
             failedAcknowledgement: 1,
             new GemClockCodec(EncodeBaselineTime, DecodeBaselineTime));
