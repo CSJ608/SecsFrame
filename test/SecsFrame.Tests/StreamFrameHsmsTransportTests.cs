@@ -171,6 +171,64 @@ public sealed class StreamFrameHsmsTransportTests
     }
 
     [Fact]
+    public async Task Explicit_close_reconnects_current_session_and_reports_reason()
+    {
+        var connection = new FakeStreamConnection();
+        await using var transport = CreateTransport(
+            connection,
+            new ManualHsmsTransportTimerFactory());
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var events = transport.GetEventsAsync(cancellation.Token).GetAsyncEnumerator();
+        transport.Start(cancellation.Token);
+        connection.RaiseState(ConnectionState.Connected);
+        var opened = await NextAsync(events);
+        var reason = new HsmsProtocolException("Invalid control message.");
+
+        var closedCurrent = transport.TryCloseSession(opened.SessionId, reason);
+        var closed = await NextAsync(events);
+
+        Assert.True(closedCurrent);
+        Assert.Equal(1, connection.ReconnectCount);
+        Assert.Equal(HsmsTransportEventKind.SessionClosed, closed.Kind);
+        Assert.Equal(opened.SessionId, closed.SessionId);
+        Assert.Same(reason, closed.Error);
+        await events.DisposeAsync().ConfigureAwait(true);
+    }
+
+    [Fact]
+    public async Task Explicit_close_for_expired_session_does_not_reconnect_current_session()
+    {
+        var connection = new FakeStreamConnection();
+        await using var transport = CreateTransport(
+            connection,
+            new ManualHsmsTransportTimerFactory());
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var events = transport.GetEventsAsync(cancellation.Token).GetAsyncEnumerator();
+        transport.Start(cancellation.Token);
+        connection.RaiseState(ConnectionState.Connected);
+        var expiredSessionId = (await NextAsync(events)).SessionId;
+        connection.RaiseState(ConnectionState.Retry);
+        await NextAsync(events);
+        connection.RaiseState(ConnectionState.Connecting);
+        connection.RaiseState(ConnectionState.Connected);
+        var currentSessionId = (await NextAsync(events)).SessionId;
+
+        var closedExpired = transport.TryCloseSession(
+            expiredSessionId,
+            new HsmsProtocolException("Late close request."));
+
+        Assert.False(closedExpired);
+        Assert.Equal(0, connection.ReconnectCount);
+        var currentSend = transport.SendAsync(
+            currentSessionId,
+            CreateFrame(),
+            cancellation.Token).AsTask();
+        connection.ReportSent(new byte[14]);
+        await currentSend.ConfigureAwait(true);
+        await events.DisposeAsync().ConfigureAwait(true);
+    }
+
+    [Fact]
     public async Task Idle_or_complete_frames_do_not_trigger_incomplete_frame_reconnect()
     {
         var connection = new FakeStreamConnection();

@@ -11,14 +11,17 @@
 - [x] 完整 SECS-II Item 类型、嵌套 List 和严格二进制编解码。
 - [x] 动态 SecsMessage、可选单根 Item 与 HSMS Data Message Payload 编解码。
 - [x] StreamFrame #38/#39 的内部会话绑定、写出确认和未完成帧超时适配。
-- Active/Passive HSMS-SS 状态机和 Select/Linktest/Separate/Reject 控制消息。
-- T3/T5/T6/T7/T8、System Bytes 关联和会话失效处理。
+- [x] Active/Passive 共用状态机的 Select/Select Response、Separate、
+  T6/T7、System Bytes 关联和会话失效处理。
+- [ ] Linktest、Reject、Deselect 控制消息与对应 T6 分支。
+- [ ] T3 数据事务、T5 重连节流和 T8 标准边界核对。
 - Host、Equipment 双角色回环集成测试，以及与 secs4net 的互操作测试。
 
-阶段 1 的下一最小切片是 Active/Passive 共用的 HSMS-SS 连接状态机，
-先实现 TCP Session 生命周期与 Select/Select Response、Separate 控制
-流程。它依赖已完成的内部传输事件流，但不依赖 SECS-II 事务管理器。
-T5/T6/T7 计时和非法状态转换必须使用可替换时间源并包含状态机向量测试。
+阶段 1 的下一最小切片是补齐 HSMS-SS 控制平面：Linktest
+Request/Response、Reject Request 和 Deselect Request/Response。它复用
+现有会话 actor、T6 工厂、System Bytes 与真实写出确认，不依赖 T3 数据
+事务。完成后再实现 T3 请求/响应关联、并发事务取消和 Session ID 隔离；
+GEM 通讯建立依赖这些事务能力。
 
 ## 阶段 2：GEM 通用能力
 

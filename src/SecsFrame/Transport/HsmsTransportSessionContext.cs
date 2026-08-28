@@ -43,6 +43,15 @@ internal sealed class HsmsTransportSessionContext
             return sessionId.IsValid && sessionId == _current;
     }
 
+    public bool TryGetCurrent(out HsmsTransportSessionId sessionId)
+    {
+        lock (_gate)
+        {
+            sessionId = _current;
+            return sessionId.IsValid;
+        }
+    }
+
     public HsmsTransportSessionId GetCurrent()
     {
         lock (_gate)
