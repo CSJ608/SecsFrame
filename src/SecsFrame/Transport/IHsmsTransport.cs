@@ -12,4 +12,8 @@ internal interface IHsmsTransport : IAsyncDisposable
         HsmsTransportSessionId sessionId,
         HsmsFrame frame,
         CancellationToken cancellationToken);
+
+    bool TryCloseSession(
+        HsmsTransportSessionId sessionId,
+        Exception? error = null);
 }

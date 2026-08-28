@@ -64,6 +64,34 @@ HSMS 会话切换后，旧会话的控制请求、数据事务和等待中的应
 上游支持后只替换 <code>IHsmsTransport</code> 实现。详细失效模式与替换
 条件见 [STREAMFRAME-ADAPTER.md](STREAMFRAME-ADAPTER.md)。
 
+### 单线程会话状态机
+
+<code>HsmsSessionStateMachine</code> 是内部 actor：传输事件、发送完成、
+计时器到期和本地 Separate 命令进入同一输入队列，状态只在一个读取者上
+修改。Active/Passive 共享状态模型，Host/Equipment 角色不参与连接模式
+判断。
+
+~~~text
+TCP SessionOpened
+        |
+        v
+    Connected -- Active sends Select Request --> Selecting
+        |                                         |
+        +-- Passive receives Select Request ------+
+                                                  v
+                                              Selected
+                                                  |
+                          Separate / close / error v
+                                             Disconnected
+~~~
+
+T7 从 TCP 会话打开后运行，到 Selected 时取消。Active 的 Select Request
+只有在 <code>IHsmsTransport.SendAsync</code> 确认完整线上帧实际写出后
+才启动 T6。Select Response 必须匹配等待中的 System Bytes。状态机只在
+Selected 转发数据消息；提前到达的数据、非法控制头和意外响应会关闭当前
+Session ID，不会影响替换会话。详细行为与未实现边界见
+[HSMS-SESSION-STATE-MACHINE.md](HSMS-SESSION-STATE-MACHINE.md)。
+
 ### 严格与兼容分离
 
 默认按标准拒绝畸形帧、非法 Item 和无效状态转换。对现场设备的已知偏差通过命名明确的兼容选项启用，并记录来源、风险和测试向量。

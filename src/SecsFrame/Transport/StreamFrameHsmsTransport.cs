@@ -172,6 +172,30 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
         _events.Writer.TryComplete();
     }
 
+    public bool TryCloseSession(
+        HsmsTransportSessionId sessionId,
+        Exception? error = null)
+    {
+        ThrowIfDisposed();
+        if (!_sessionContext.IsCurrent(sessionId))
+            return false;
+
+        lock (_closeReasonGate)
+            _nextCloseReason = error;
+
+        try
+        {
+            _connection.Reconnect();
+            return true;
+        }
+        catch
+        {
+            lock (_closeReasonGate)
+                _nextCloseReason = null;
+            throw;
+        }
+    }
+
     private async Task PumpMessagesAsync()
     {
         var messages = _connection.GetMessages(CancellationToken.None).GetAsyncEnumerator();
@@ -249,23 +273,21 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
         if (Volatile.Read(ref _disposed) != 0)
             return;
 
-        lock (_closeReasonGate)
-        {
-            _nextCloseReason = new TimeoutException(
-                "The active HSMS transport session exceeded its incomplete-frame timeout.");
-        }
-
         try
         {
-            _connection.Reconnect();
+            if (_sessionContext.TryGetCurrent(out var sessionId))
+            {
+                TryCloseSession(
+                    sessionId,
+                    new TimeoutException(
+                        "The active HSMS transport session exceeded its incomplete-frame timeout."));
+            }
         }
         catch (ObjectDisposedException)
         {
         }
         catch (Exception ex)
         {
-            lock (_closeReasonGate)
-                _nextCloseReason = null;
             FailPending(ex);
         }
     }

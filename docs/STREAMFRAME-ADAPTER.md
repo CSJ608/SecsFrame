@@ -25,6 +25,8 @@ SecsFrame 在内部 <code>IHsmsTransport</code> 后提供临时适配，公共 A
 
 接收帧不是在业务消费时读取“当前会话”，因此旧解码任务的迟到结果仍
 保留旧 Session ID。状态机可以按 ID 丢弃已关闭会话的事件。
+状态机还可以通过 <code>TryCloseSession</code> 只关闭匹配的当前 Session
+ID，并把协议错误或 T6/T7 超时原因带入 <code>SessionClosed</code>。
 
 ## 发送确认与不重放
 
