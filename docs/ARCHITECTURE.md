@@ -21,11 +21,26 @@ E172 SEDD 与 E173 SMN 是可选元数据/表示层，不进入核心通讯路�
 <code>SecsItem</code> 是不可变值对象，覆盖 E5 的全部 Item 格式。List
 保存任意嵌套 Item，数值类型使用明确宽度的 CLR 类型，ASCII 只接受七位
 字符，JIS-8 保留原始编码字节。<code>SecsItemCodec</code> 只负责一个
-完整 Item 树；空 Body 和 Item Body 的选择属于后续
-<code>SecsMessage</code> 层。
+完整 Item 树。
+
+<code>SecsMessage</code> 表达 Stream、Function、W-Bit 和可选的单根
+Item，不包含传输会话或事务标识。<code>HsmsDataMessage</code> 在其外层
+增加 Session ID 与 System Bytes；<code>HsmsDataMessageCodec</code>
+负责十字节数据头和可选 Item Body。空 Body 与零元素 List 是不同状态。
+原始 <code>HsmsFrame</code> 仍用于控制消息和后续状态机，不因高层动态
+消息 API 而改变。
+
+~~~text
+HsmsFramer: 4-byte length
+        |
+HsmsDataMessageCodec: 10-byte data header
+        |
+SecsItemCodec: optional single root Item
+~~~
 
 解码默认严格且有资源边界：保留格式、零长度字节计数、截断、数值宽度
 错位、非法 ASCII、根 Item 后尾随数据均失败；递归深度和总节点数可配置。
+数据消息层还拒绝非 Data Message 的 SType 和非零 PType。
 
 ### 连接与协议会话分离
 
