@@ -60,3 +60,7 @@
 构建；互操作夹具只允许使用 nuget.org 发布并固定版本的官方 NuGet 包。
 未来如引入实质性开源代码，必须保留对应版权与许可证文本，并在变更说明
 中记录来源。
+
+与官方 Secs4Net 3.1.0 的 Select、Linktest 和动态消息往返是独立软件实现
+之间的工程互操作证据，不代表任何一方通过 SEMI 一致性认证。具体矩阵见
+[SECS4NET-INTEROP.md](SECS4NET-INTEROP.md)。

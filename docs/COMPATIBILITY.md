@@ -19,8 +19,9 @@
 
 ## 上游能力适配
 
-StreamFrame #38（未完成帧超时）和 #39（会话感知发送确认与消息上下文）
-仍未提供原生 API。SecsFrame 当前通过内部
+StreamFrame #38（未完成帧超时）已经合入上游 <code>main</code>，但尚未
+进入正式 NuGet 版本；#39（会话感知发送确认与消息上下文）正在实现。
+SecsFrame 当前固定使用 StreamFrame 2.2.0，并通过内部
 <code>StreamFrameHsmsTransport</code> 补足对应语义。
 
 这不是设备兼容模式：
@@ -35,10 +36,13 @@ StreamFrame #38（未完成帧超时）和 #39（会话感知发送确认与消�
 
 ## 跨实现测试依赖
 
-计划中的 secs4net 互操作夹具只能使用 nuget.org 发布的官方 NuGet 包，
-并在 <code>Directory.Packages.props</code> 中固定明确版本。不得使用
-本地源码 checkout、ProjectReference、本地 feed 或自行修改的程序集作为
-互操作对端。源码仓库只读参考不进入 SecsFrame 的还原、构建或测试图。
+当前 secs4net 互操作夹具使用 nuget.org 发布的官方
+<code>Secs4Net 3.1.0</code> 包，并在
+<code>Directory.Packages.props</code> 中固定版本。仓库
+<code>NuGet.Config</code> 清除其它源并把全部包映射到 nuget.org。不得
+使用本地源码 checkout、ProjectReference、本地 feed 或自行修改的程序集
+作为互操作对端。源码仓库只读参考不进入 SecsFrame 的还原、构建或测试图。
 
-夹具和文档必须记录官方包 ID、版本、运行框架、测试方向与通过/失败结果，
-避免把本地差异误判为上游互操作能力。
+包身份、运行框架、测试方向与结果见
+[SECS4NET-INTEROP.md](SECS4NET-INTEROP.md)。这些证据避免把本地差异
+误判为上游互操作能力。

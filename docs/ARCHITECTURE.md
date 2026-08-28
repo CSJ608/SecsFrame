@@ -62,9 +62,10 @@ HSMS 会话切换后，旧会话的控制请求、数据事务和等待中的应
 - 原始接收字节独立跟踪长度前缀和剩余 Payload，仅有未完成帧时运行 T8，
   并用代次标识隔离接收进展与替换会话的陈旧回调。
 
-这些能力隔离 StreamFrame #38/#39 尚未提供的高级语义，不进入公共 API。
-上游支持后只替换 <code>IHsmsTransport</code> 实现。详细失效模式与替换
-条件见 [STREAMFRAME-ADAPTER.md](STREAMFRAME-ADAPTER.md)。
+这些能力隔离当前 StreamFrame 2.2.0 尚未提供的高级语义，不进入公共
+API。#38 已合入上游但尚未发布，#39 正在实现；正式包可用后只替换
+<code>IHsmsTransport</code> 实现。详细失效模式与替换条件见
+[STREAMFRAME-ADAPTER.md](STREAMFRAME-ADAPTER.md)。
 
 ### 单线程会话状态机
 

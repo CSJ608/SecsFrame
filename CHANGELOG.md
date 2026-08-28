@@ -47,5 +47,9 @@
   单消费者事件流、入站一次性回复和控制命令。
 - 增加公共 API 选项边界、生命周期、等待/事务取消和 Active/Passive
   双端真实 TCP 往返测试；入站回复令牌绑定原连接与原运输会话。
+- 增加独立的官方 <code>Secs4Net 3.1.0</code> NuGet 互操作测试项目，
+  由中央包管理固定版本且只从 nuget.org 还原，不引用本地源码 checkout。
+- 增加双方 Active/Passive、Select、双方 Linktest、双方
+  Primary/Secondary 及嵌套 Item 边界值的真实 TCP 跨实现测试。
 
 [Unreleased]: https://github.com/CSJ608/SecsFrame/compare/main...HEAD

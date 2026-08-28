@@ -79,14 +79,17 @@ System Bytes。旧会话的帧、发送完成和计时器回调不会推进替�
 事务细节见 [HSMS-DATA-TRANSACTIONS.md](HSMS-DATA-TRANSACTIONS.md)。
 公共 <code>HsmsConnection</code> 另行验证同一路径的外部组合契约，见
 [HSMS-CONNECTION.md](HSMS-CONNECTION.md)。
-测试证明当前实现路径可互操作，不替代认证工具或第三方设备互操作证据。
+独立夹具还与 nuget.org 官方 Secs4Net 3.1.0 在双方 Active/Passive 模式下
+完成 Select、双方 Linktest 和双方 Primary/Secondary，见
+[SECS4NET-INTEROP.md](SECS4NET-INTEROP.md)。测试证明当前实现路径可互操作，
+不替代认证工具或真实设备证据。
 
 ## 尚未实现
 
 - 授权标准核对后的 T5/T8 默认值和完整标准语义；
 - 自动周期 Linktest 调度；
 - Host/Equipment 能力 API；
-- 与 secs4net 或真实设备的跨实现互操作矩阵。
+- 与真实设备、认证工具和更多实现版本的互操作矩阵。
 
 实现这些行为前，需要使用团队合法获得的 SEMI E37-0222 与 E37.1-0819
 副本核对精确状态转换、控制字段、状态/原因值和计时边界。仓库不得提交

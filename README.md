@@ -38,6 +38,8 @@ Deselect、Separate、T6/T7 和 Selected 数据门控。内部数据事务 actor
 [docs/HSMS-DATA-TRANSACTIONS.md](docs/HSMS-DATA-TRANSACTIONS.md)，
 公共连接用法见
 [docs/HSMS-CONNECTION.md](docs/HSMS-CONNECTION.md)，
+官方 secs4net 跨实现证据见
+[docs/SECS4NET-INTEROP.md](docs/SECS4NET-INTEROP.md)，
 整体路线图见
 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
