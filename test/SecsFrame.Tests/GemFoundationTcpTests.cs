@@ -15,6 +15,7 @@ public sealed class GemFoundationTcpTests
         await AssertDynamicDataAsync(context).ConfigureAwait(true);
         await AssertCollectionEventsAsync(context).ConfigureAwait(true);
         await AssertAlarmNotificationsAsync(context).ConfigureAwait(true);
+        await AssertRemoteCommandsAsync(context).ConfigureAwait(true);
         await AssertClockAsync(context).ConfigureAwait(true);
         Assert.Equal(
             context.HostServices.Identity,
@@ -274,6 +275,74 @@ public sealed class GemFoundationTcpTests
         Assert.Equal(GemOperation.AlarmNotification, rejected.Operation);
         Assert.Equal((byte)1, rejected.Acknowledgement);
     }
+
+    private static async Task AssertRemoteCommandsAsync(GemTcpContext context)
+    {
+        var received = new TaskCompletionSource<GemRemoteCommand>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using (context.EquipmentServices.RegisterRemoteCommandHandler(
+            (command, cancellationToken) =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                received.TrySetResult(command);
+                return new ValueTask<GemRemoteCommandResult>(
+                    new GemRemoteCommandResult(
+                        0,
+                        new[]
+                        {
+                            new GemRemoteCommandParameterResult(
+                                SecsItem.Ascii("SPEED"),
+                                0),
+                            new GemRemoteCommandParameterResult(
+                                SecsItem.U1(2),
+                                7),
+                        }));
+            }))
+        {
+            var result = await context.HostServices.ExecuteRemoteCommandAsync(
+                CreateRemoteCommand(),
+                context.Token).ConfigureAwait(true);
+            Assert.Equal((byte)0, result.Acknowledgement);
+            Assert.Equal(2, result.ParameterResults.Count);
+            Assert.Equal(
+                SecsItem.Ascii("SPEED"),
+                result.ParameterResults[0].Name);
+            Assert.Equal((byte)0, result.ParameterResults[0].Acknowledgement);
+            Assert.Equal(SecsItem.U1(2), result.ParameterResults[1].Name);
+            Assert.Equal((byte)7, result.ParameterResults[1].Acknowledgement);
+        }
+
+        var command = await received.Task.ConfigureAwait(true);
+        Assert.Equal(SecsItem.U4(7001), command.Command);
+        Assert.Equal(2, command.Parameters.Count);
+        Assert.Equal(SecsItem.Ascii("SPEED"), command.Parameters[0].Name);
+        Assert.Equal(SecsItem.U2(25), command.Parameters[0].Value);
+        Assert.Equal(SecsItem.U1(2), command.Parameters[1].Name);
+        Assert.Equal(
+            SecsItem.List(SecsItem.Boolean(true), SecsItem.F8(1.5)),
+            command.Parameters[1].Value);
+
+        var unavailable = await context.HostServices.ExecuteRemoteCommandAsync(
+            CreateRemoteCommand(),
+            context.Token).ConfigureAwait(true);
+        Assert.Equal((byte)1, unavailable.Acknowledgement);
+        Assert.Empty(unavailable.ParameterResults);
+    }
+
+    private static GemRemoteCommand CreateRemoteCommand()
+        => new(
+            SecsItem.U4(7001),
+            new[]
+            {
+                new GemRemoteCommandParameter(
+                    SecsItem.Ascii("SPEED"),
+                    SecsItem.U2(25)),
+                new GemRemoteCommandParameter(
+                    SecsItem.U1(2),
+                    SecsItem.List(
+                        SecsItem.Boolean(true),
+                        SecsItem.F8(1.5))),
+            });
 
     private static async Task PumpAsync(
         SecsEndpoint endpoint,

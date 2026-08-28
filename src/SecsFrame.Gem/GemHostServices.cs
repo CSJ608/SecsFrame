@@ -171,6 +171,23 @@ public sealed class GemHostServices : IDisposable
                 "event-report-link reply"));
     }
 
+    /// <summary>Sends a remote command and returns its uninterpreted result.</summary>
+    public async Task<GemRemoteCommandResult> ExecuteRemoteCommandAsync(
+        GemRemoteCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        if (command is null)
+            throw new ArgumentNullException(nameof(command));
+
+        var response = await _services.SendRequestAsync(
+            Profile.RemoteCommand,
+            GemOperation.RemoteCommand,
+            GemMessageCodec.EncodeRemoteCommand(command),
+            cancellationToken).ConfigureAwait(false);
+        return GemMessageCodec.DecodeRemoteCommandResult(
+            response.Message.RootItem);
+    }
+
     /// <summary>Registers the single application Collection Event handler.</summary>
     public GemCollectionEventRegistration RegisterCollectionEventHandler(
         GemCollectionEventHandler handler)

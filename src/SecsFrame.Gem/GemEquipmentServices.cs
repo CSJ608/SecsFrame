@@ -16,6 +16,7 @@ public sealed class GemEquipmentServices : IDisposable
     private readonly Dictionary<SecsItem, GemValueRegistration> _equipmentConstants = new();
     private readonly Dictionary<SecsItem, GemReportDefinition> _reportDefinitions = new();
     private readonly Dictionary<SecsItem, GemEventReportLink> _eventReportLinks = new();
+    private GemRemoteCommandRegistration? _remoteCommandHandler;
     private int _disposed;
 
     /// <summary>Creates Equipment GEM services without taking ownership of the endpoint.</summary>
@@ -88,6 +89,30 @@ public sealed class GemEquipmentServices : IDisposable
             identifier,
             provider,
             "equipment constant");
+
+    /// <summary>Registers the single application remote-command handler.</summary>
+    public GemRemoteCommandRegistration RegisterRemoteCommandHandler(
+        GemRemoteCommandHandler handler)
+    {
+        if (handler is null)
+            throw new ArgumentNullException(nameof(handler));
+
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            if (_remoteCommandHandler is not null)
+            {
+                throw new InvalidOperationException(
+                    "A remote-command handler is already registered.");
+            }
+
+            var registration = new GemRemoteCommandRegistration(
+                handler,
+                UnregisterRemoteCommandHandler);
+            _remoteCommandHandler = registration;
+            return registration;
+        }
+    }
 
     /// <summary>Collects and sends one linked Collection Event to the Host.</summary>
     public async Task SendCollectionEventAsync(
@@ -174,6 +199,7 @@ public sealed class GemEquipmentServices : IDisposable
             _equipmentConstants.Clear();
             _reportDefinitions.Clear();
             _eventReportLinks.Clear();
+            _remoteCommandHandler = null;
         }
         _services.Dispose();
     }
@@ -188,6 +214,7 @@ public sealed class GemEquipmentServices : IDisposable
         _services.AddRoute(Profile.SetClock, HandleSetClockAsync);
         _services.AddRoute(Profile.DefineReports, HandleDefineReportsAsync);
         _services.AddRoute(Profile.LinkEventReports, HandleLinkEventReportsAsync);
+        _services.AddRoute(Profile.RemoteCommand, HandleRemoteCommandAsync);
     }
 
     private ValueTask<SecsMessage?> HandleOnlineAsync(
@@ -338,6 +365,30 @@ public sealed class GemEquipmentServices : IDisposable
                     : Profile.AcceptedAcknowledgement),
             cancellationToken).ConfigureAwait(false);
         return null;
+    }
+
+    private async ValueTask<SecsMessage?> HandleRemoteCommandAsync(
+        HsmsPrimaryContext context,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        GemMessageCodec.RequireReplyExpected(context, "remote-command request");
+        var command = GemMessageCodec.DecodeRemoteCommand(
+            context.Message.RootItem);
+        GemRemoteCommandHandler? handler;
+        lock (_gate)
+            handler = _remoteCommandHandler?.Handler;
+
+        var result = handler is null
+            ? new GemRemoteCommandResult(
+                Profile.FailedAcknowledgement,
+                Array.Empty<GemRemoteCommandParameterResult>())
+            : await handler(command, cancellationToken).ConfigureAwait(false) ??
+                throw new GemProtocolException(
+                    "The remote-command handler returned null.");
+        return GemEndpointServices.CreateSecondary(
+            Profile.RemoteCommand,
+            GemMessageCodec.EncodeRemoteCommandResult(result));
     }
 
     private GemValueRegistration RegisterValue(
@@ -560,6 +611,16 @@ public sealed class GemEquipmentServices : IDisposable
     {
         if (Volatile.Read(ref _disposed) != 0)
             throw new ObjectDisposedException(nameof(GemEquipmentServices));
+    }
+
+    private void UnregisterRemoteCommandHandler(
+        GemRemoteCommandRegistration registration)
+    {
+        lock (_gate)
+        {
+            if (ReferenceEquals(_remoteCommandHandler, registration))
+                _remoteCommandHandler = null;
+        }
     }
 
     private sealed class ReportExecution

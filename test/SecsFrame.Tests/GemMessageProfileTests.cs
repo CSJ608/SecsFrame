@@ -29,9 +29,16 @@ public sealed class GemMessageProfileTests
         Assert.Equal(new GemMessagePair(2, 35, 36), profile.LinkEventReports);
         Assert.Equal(new GemMessagePair(6, 11, 12), profile.CollectionEvent);
         Assert.Equal(new GemMessagePair(5, 1, 2), profile.AlarmNotification);
+        Assert.Equal(new GemMessagePair(2, 41, 42), profile.RemoteCommand);
         Assert.Equal(
             new GemMessagePair(5, 1, 2),
             CreateLegacyCompatibleProfile(profile).AlarmNotification);
+        Assert.Equal(
+            new GemMessagePair(2, 41, 42),
+            CreateLegacyCompatibleProfile(profile).RemoteCommand);
+        Assert.Equal(
+            new GemMessagePair(2, 41, 42),
+            CreateAlarmCompatibleProfile(profile).RemoteCommand);
         Assert.Equal((byte)0, profile.AcceptedAcknowledgement);
         Assert.Equal((byte)1, profile.FailedAcknowledgement);
         Assert.Equal("2026082801101112", profile.ClockCodec.Encode(value));
@@ -53,6 +60,9 @@ public sealed class GemMessageProfileTests
         Assert.Throws<ArgumentException>(() => CreateProfile(
             baseline,
             alarmNotification: baseline.EstablishCommunication));
+        Assert.Throws<ArgumentException>(() => CreateProfile(
+            baseline,
+            remoteCommand: baseline.EstablishCommunication));
         Assert.Throws<ArgumentException>(() => CreateProfile(
             baseline,
             failedAcknowledgement: baseline.AcceptedAcknowledgement));
@@ -98,11 +108,49 @@ public sealed class GemMessageProfileTests
             new GemAlarmNotification(0, SecsItem.U2(3001), "报警"));
     }
 
+    [Fact]
+    public void Remote_command_values_are_immutable_and_unambiguous()
+    {
+        var parameters = new[]
+        {
+            new GemRemoteCommandParameter(
+                SecsItem.Ascii("SPEED"),
+                SecsItem.U2(10)),
+        };
+        var command = new GemRemoteCommand(SecsItem.U4(7), parameters);
+        parameters[0] = new GemRemoteCommandParameter(
+            SecsItem.Ascii("MODE"),
+            SecsItem.Ascii("AUTO"));
+
+        Assert.Equal(SecsItem.Ascii("SPEED"), Assert.Single(command.Parameters).Name);
+        Assert.Throws<ArgumentException>(() => new GemRemoteCommand(
+            SecsItem.Ascii("START"),
+            new[]
+            {
+                new GemRemoteCommandParameter(
+                    SecsItem.Ascii("SPEED"),
+                    SecsItem.U2(10)),
+                new GemRemoteCommandParameter(
+                    SecsItem.Ascii("SPEED"),
+                    SecsItem.U2(20)),
+            }));
+        Assert.Throws<ArgumentNullException>(() =>
+            new GemRemoteCommandParameter(null!, SecsItem.U1(1)));
+        Assert.Throws<ArgumentException>(() => new GemRemoteCommandResult(
+            1,
+            new[]
+            {
+                new GemRemoteCommandParameterResult(SecsItem.U1(1), 2),
+                new GemRemoteCommandParameterResult(SecsItem.U1(1), 3),
+            }));
+    }
+
     private static GemMessageProfile CreateProfile(
         GemMessageProfile baseline,
         GemMessagePair? areYouOnline = null,
         GemMessagePair? collectionEvent = null,
         GemMessagePair? alarmNotification = null,
+        GemMessagePair? remoteCommand = null,
         byte? failedAcknowledgement = null,
         GemClockCodec? clockCodec = default,
         bool useNullClockCodec = false)
@@ -119,6 +167,7 @@ public sealed class GemMessageProfileTests
             baseline.LinkEventReports,
             collectionEvent ?? baseline.CollectionEvent,
             alarmNotification ?? baseline.AlarmNotification,
+            remoteCommand ?? baseline.RemoteCommand,
             baseline.AcceptedAcknowledgement,
             failedAcknowledgement ?? baseline.FailedAcknowledgement,
             useNullClockCodec ? null! : clockCodec ?? baseline.ClockCodec);
@@ -137,6 +186,25 @@ public sealed class GemMessageProfileTests
             baseline.DefineReports,
             baseline.LinkEventReports,
             baseline.CollectionEvent,
+            baseline.AcceptedAcknowledgement,
+            baseline.FailedAcknowledgement,
+            baseline.ClockCodec);
+
+    private static GemMessageProfile CreateAlarmCompatibleProfile(
+        GemMessageProfile baseline)
+        => new(
+            baseline.EstablishCommunication,
+            baseline.AreYouOnline,
+            baseline.RequestOnline,
+            baseline.RequestOffline,
+            baseline.ReadStatusVariables,
+            baseline.ReadEquipmentConstants,
+            baseline.GetClock,
+            baseline.SetClock,
+            baseline.DefineReports,
+            baseline.LinkEventReports,
+            baseline.CollectionEvent,
+            baseline.AlarmNotification,
             baseline.AcceptedAcknowledgement,
             baseline.FailedAcknowledgement,
             baseline.ClockCodec);
