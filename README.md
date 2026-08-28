@@ -21,9 +21,11 @@
 | `SecsFrame.Smn` | E173 SMN 日志、文档与消息表示 |
 | `SecsFrame.Sedd` | E172 SEDD 设备接口数据字典 |
 
-当前代码覆盖第一阶段的 HSMS 线上帧基础，以及完整的 SECS-II Item
-动态数据模型和严格二进制编解码。Item 用法与边界见
-[docs/SECS-II-ITEMS.md](docs/SECS-II-ITEMS.md)，整体路线图见
+当前代码覆盖第一阶段的 HSMS 线上帧基础、完整的 SECS-II Item
+动态数据模型，以及动态消息到 HSMS Data Message Payload 的严格二进制
+编解码。Item 用法与边界见
+[docs/SECS-II-ITEMS.md](docs/SECS-II-ITEMS.md)，消息集成见
+[docs/SECS-MESSAGES.md](docs/SECS-MESSAGES.md)，整体路线图见
 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
 ## 动态 Item
@@ -38,12 +40,28 @@ var body = SecsItem.List(
         SecsItem.Boolean(true),
         SecsItem.F8(23.5)));
 
-var codec = new SecsItemCodec();
+var message = new SecsMessage(
+    stream: 6,
+    function: 11,
+    replyExpected: true,
+    rootItem: body);
+
+var hsmsMessage = new HsmsDataMessage(
+    sessionId: 1,
+    systemBytes: 0x01020304,
+    message);
+
+var codec = new HsmsDataMessageCodec();
 ~~~
 
 <code>SecsItemCodec</code> 默认严格拒绝非法格式、截断、数值宽度错位、
 非 ASCII 字节、尾随数据和超过资源上限的树。JIS-8 在核心层以原始编码
 字节表示，不猜测现场代码页。
+
+<code>HsmsDataMessageCodec</code> 编解码四字节长度前缀之后的完整 HSMS
+数据 Payload。没有 Body 使用 <code>null</code>，空 List 使用
+<code>SecsItem.List()</code>，两者不会混淆。长度前缀继续由
+<code>HsmsFramer</code> 负责。
 
 ## 构建
 
