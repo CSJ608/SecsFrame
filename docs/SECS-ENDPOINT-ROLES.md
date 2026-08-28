@@ -57,10 +57,10 @@ await equipment.WaitUntilSelectedAsync(cancellationToken);
 ## 能力边界
 
 基础角色端点故意保持对称：Host 和 Equipment 都可能发起 Primary，也都
-可能处理对端 Primary。后续 GEM 层会通过依赖具体的
+可能处理对端 Primary。独立 GEM 层通过依赖具体的
 <code>SecsHost</code> 或 <code>SecsEquipment</code> 类型提供不同业务能力，
 而不是修改 HSMS 状态机或根据 Active/Passive 猜测角色。
 
-当前切片没有实现 E30 的在线状态、变量、设备常量、报告、事件、报警或
-远程命令语义，因此不声明 GEM 合规。相关行为必须继续记录标准版本、测试
-证据与未核对边界。
+当前 GEM 基础切片已实现工程配置下的通讯建立、在线状态、变量、设备常量
+和时钟；报告、事件、报警和远程命令仍未实现。相关行为、事件循环要求和
+未核对边界见 [GEM-FOUNDATION.md](GEM-FOUNDATION.md)，项目不声明 GEM 合规。

@@ -14,6 +14,7 @@
     <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\src\SecsFrame.Gem\SecsFrame.Gem.csproj" />
     <ProjectReference Include="..\..\src\SecsFrame\SecsFrame.csproj" />
   </ItemGroup>
   <ItemGroup>

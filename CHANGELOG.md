@@ -63,5 +63,11 @@
   <code>SecsEquipment</code> 公共端点，角色与 Active/Passive 保持正交。
 - 增加 Host Active/Equipment Passive 及反向拓扑的双向 Primary/Secondary
   真实 TCP 回环测试。
+- 增加独立 <code>SecsFrame.Gem</code> 程序集、可替换
+  <code>GemMessageProfile</code>、Host/Equipment 基础服务和显式 GEM 状态。
+- 增加通讯建立、上下线、运行期状态变量/设备常量提供器和应用托管时钟，
+  严格校验 W-Bit、消息体、Secondary、应答值、未知标识与时钟输入。
+- 增加 Host Active/Equipment Passive 的 GEM 真实 TCP 垂直测试，覆盖双向
+  通讯建立、动态嵌套值、时钟读写、拒绝应答和 Linktest。
 
 [Unreleased]: https://github.com/CSJ608/SecsFrame/compare/main...HEAD
