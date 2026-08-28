@@ -32,3 +32,13 @@ StreamFrame #38（未完成帧超时）和 #39（会话感知发送确认与消�
 
 具体机制、测试证据和已知代价见
 [STREAMFRAME-ADAPTER.md](STREAMFRAME-ADAPTER.md)。
+
+## 跨实现测试依赖
+
+计划中的 secs4net 互操作夹具只能使用 nuget.org 发布的官方 NuGet 包，
+并在 <code>Directory.Packages.props</code> 中固定明确版本。不得使用
+本地源码 checkout、ProjectReference、本地 feed 或自行修改的程序集作为
+互操作对端。源码仓库只读参考不进入 SecsFrame 的还原、构建或测试图。
+
+夹具和文档必须记录官方包 ID、版本、运行框架、测试方向与通过/失败结果，
+避免把本地差异误判为上游互操作能力。

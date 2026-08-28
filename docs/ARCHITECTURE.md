@@ -120,6 +120,18 @@ HSMS 头 Session ID 与 System Bytes。没有 W-Bit 的出站消息在写出后
 和测试边界见
 [HSMS-DATA-TRANSACTIONS.md](HSMS-DATA-TRANSACTIONS.md)。
 
+### 公共连接外观
+
+<code>HsmsConnection</code> 是运输、会话和数据事务 actor 之上的薄公共
+组合层。它要求显式网络、协议 Session ID 和 T3/T5/T6/T7/T8 配置，公开
+动态消息发送、一次性入站回复、控制命令、Selected 等待和单消费者事件
+流。公共层不暴露 transport Session generation、StreamFrame
+<code>StreamConnectionOptions</code> 或 #38/#39 的回调适配。
+
+连接内部独占消费事务事件，并分别更新状态等待信号与公共事件 channel，
+因此 readiness 等待不会与业务消息消费者竞争。详细生命周期和取消语义
+见 [HSMS-CONNECTION.md](HSMS-CONNECTION.md)。
+
 ### 严格与兼容分离
 
 默认按标准拒绝畸形帧、非法 Item 和无效状态转换。对现场设备的已知偏差通过命名明确的兼容选项启用，并记录来源、风险和测试向量。

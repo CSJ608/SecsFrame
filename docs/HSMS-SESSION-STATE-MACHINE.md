@@ -77,13 +77,15 @@ System Bytes。旧会话的帧、发送完成和计时器回调不会推进替�
 <code>StreamFrameHsmsTransport</code> 完成 Select、Linktest 和 Deselect
 流程；其上的事务回环还完成带嵌套 Item 的 Primary/Secondary 往返。数据
 事务细节见 [HSMS-DATA-TRANSACTIONS.md](HSMS-DATA-TRANSACTIONS.md)。
+公共 <code>HsmsConnection</code> 另行验证同一路径的外部组合契约，见
+[HSMS-CONNECTION.md](HSMS-CONNECTION.md)。
 测试证明当前实现路径可互操作，不替代认证工具或第三方设备互操作证据。
 
 ## 尚未实现
 
 - 授权标准核对后的 T5/T8 默认值和完整标准语义；
 - 自动周期 Linktest 调度；
-- 公共会话 API、Host/Equipment 能力 API；
+- Host/Equipment 能力 API；
 - 与 secs4net 或真实设备的跨实现互操作矩阵。
 
 实现这些行为前，需要使用团队合法获得的 SEMI E37-0222 与 E37.1-0819

@@ -28,13 +28,16 @@
 共用的内部 HSMS-SS 状态机已经覆盖 TCP 会话、Select、Linktest、Reject、
 Deselect、Separate、T6/T7 和 Selected 数据门控。内部数据事务 actor
 进一步提供实际写出后启动的 T3、复合事务键关联、入站回复和会话失效
-隔离。Item 用法与边界见
+隔离。公共 <code>HsmsConnection</code> 将这些内部层组合成显式计时
+配置、动态消息收发、状态等待和单消费者事件流。Item 用法与边界见
 [docs/SECS-II-ITEMS.md](docs/SECS-II-ITEMS.md)，消息集成见
 [docs/SECS-MESSAGES.md](docs/SECS-MESSAGES.md)，传输适配边界见
 [docs/STREAMFRAME-ADAPTER.md](docs/STREAMFRAME-ADAPTER.md)，状态机边界见
 [docs/HSMS-SESSION-STATE-MACHINE.md](docs/HSMS-SESSION-STATE-MACHINE.md)，
 数据事务边界见
 [docs/HSMS-DATA-TRANSACTIONS.md](docs/HSMS-DATA-TRANSACTIONS.md)，
+公共连接用法见
+[docs/HSMS-CONNECTION.md](docs/HSMS-CONNECTION.md)，
 整体路线图见
 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
