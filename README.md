@@ -42,6 +42,8 @@ Deselect、Separate、T6/T7 和 Selected 数据门控。内部数据事务 actor
 [docs/HSMS-DIAGNOSTICS.md](docs/HSMS-DIAGNOSTICS.md)，
 运行期消息处理见
 [docs/HSMS-PRIMARY-ROUTING.md](docs/HSMS-PRIMARY-ROUTING.md)，
+Host/Equipment 端点见
+[docs/SECS-ENDPOINT-ROLES.md](docs/SECS-ENDPOINT-ROLES.md)，
 官方 secs4net 跨实现证据见
 [docs/SECS4NET-INTEROP.md](docs/SECS4NET-INTEROP.md)，
 整体路线图见

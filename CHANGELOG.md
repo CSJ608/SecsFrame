@@ -59,5 +59,9 @@
   处理器并在原事务上自动回复，无需预生成消息类型或完整消息目录。
 - 未匹配连接事件继续由应用处理；处理器注册可释放替换，异常、取消和
   W-Bit 契约错误明确传播。
+- 增加拥有连接与动态路由生命周期的 <code>SecsHost</code> 和
+  <code>SecsEquipment</code> 公共端点，角色与 Active/Passive 保持正交。
+- 增加 Host Active/Equipment Passive 及反向拓扑的双向 Primary/Secondary
+  真实 TCP 回环测试。
 
 [Unreleased]: https://github.com/CSJ608/SecsFrame/compare/main...HEAD
