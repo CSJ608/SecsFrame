@@ -20,10 +20,12 @@ public sealed class HsmsStreamConnectionOptionsAdapterTests
         Assert.NotSame(source, adapted);
         Assert.Equal(1250, adapted.ConnectRetryDelayMs);
         Assert.Equal(0, adapted.MaxRetryDelayMs);
+        Assert.Equal(5000, adapted.IncompleteFrameTimeoutMs);
         Assert.Equal(source.AcceptRetryDelayMs, adapted.AcceptRetryDelayMs);
         AssertOtherOptionsEqual(source, adapted);
         Assert.Equal(111, source.ConnectRetryDelayMs);
         Assert.Equal(333, source.MaxRetryDelayMs);
+        Assert.Equal(888, source.IncompleteFrameTimeoutMs);
     }
 
     [Fact]
@@ -43,6 +45,7 @@ public sealed class HsmsStreamConnectionOptionsAdapterTests
         Assert.Equal(source.ConnectRetryDelayMs, adapted.ConnectRetryDelayMs);
         Assert.Equal(source.AcceptRetryDelayMs, adapted.AcceptRetryDelayMs);
         Assert.Equal(source.MaxRetryDelayMs, adapted.MaxRetryDelayMs);
+        Assert.Equal(5000, adapted.IncompleteFrameTimeoutMs);
         AssertOtherOptionsEqual(source, adapted);
     }
 
@@ -51,11 +54,12 @@ public sealed class HsmsStreamConnectionOptionsAdapterTests
     {
         var options = new HsmsTransportOptions(
             TimeSpan.FromMilliseconds(int.MaxValue),
-            TimeSpan.FromTicks(1));
+            TimeSpan.FromMilliseconds(1));
 
         Assert.Equal(TimeSpan.FromMilliseconds(int.MaxValue), options.T5);
         Assert.Equal(int.MaxValue, options.T5Milliseconds);
-        Assert.Equal(TimeSpan.FromTicks(1), options.T8);
+        Assert.Equal(TimeSpan.FromMilliseconds(1), options.T8);
+        Assert.Equal(1, options.T8Milliseconds);
     }
 
     [Fact]
@@ -98,6 +102,24 @@ public sealed class HsmsStreamConnectionOptionsAdapterTests
                 TimeSpan.FromTicks(-1)));
     }
 
+    [Fact]
+    public void Submillisecond_T8_is_rejected_instead_of_rounded()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new HsmsTransportOptions(
+                TimeSpan.FromSeconds(1),
+                TimeSpan.FromTicks(TimeSpan.TicksPerMillisecond + 1)));
+    }
+
+    [Fact]
+    public void T8_beyond_StreamFrame_range_is_rejected()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new HsmsTransportOptions(
+                TimeSpan.FromSeconds(1),
+                TimeSpan.FromMilliseconds((long)int.MaxValue + 1)));
+    }
+
     private static StreamConnectionOptions CreateSource()
         => new()
         {
@@ -115,6 +137,7 @@ public sealed class HsmsStreamConnectionOptionsAdapterTests
             KeepAliveIntervalMs = 555,
             ReceiveQueueCapacity = 6,
             ReceiveIdleTimeoutMs = 777,
+            IncompleteFrameTimeoutMs = 888,
         };
 
     private static void AssertOtherOptionsEqual(

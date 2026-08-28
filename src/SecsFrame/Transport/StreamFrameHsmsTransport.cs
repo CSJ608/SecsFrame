@@ -1,5 +1,6 @@
 using System.Net;
 using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 using System.Threading.Channels;
 using StreamFrame;
 
@@ -7,47 +8,32 @@ namespace SecsFrame;
 
 internal sealed class StreamFrameHsmsTransport : IHsmsTransport
 {
-    private readonly IStreamConnection<HsmsTransportFrame> _connection;
-    private readonly HsmsTransportSessionContext _sessionContext;
-    private readonly HsmsT8Monitor _t8Monitor;
+    private readonly ISessionAwareStreamConnection<HsmsFrame> _connection;
     private readonly Channel<HsmsTransportEvent> _events;
-    private readonly SemaphoreSlim _sendGate = new(1, 1);
 #if NET9_0_OR_GREATER
-    private readonly Lock _pendingGate = new();
-    private readonly Lock _closeReasonGate = new();
+    private readonly Lock _sessionGate = new();
 #else
-    private readonly object _pendingGate = new();
-    private readonly object _closeReasonGate = new();
+    private readonly object _sessionGate = new();
 #endif
-    private PendingSend? _pendingSend;
-    private Exception? _nextCloseReason;
+    private readonly Dictionary<long, SessionContext> _sessions = new();
     private Task? _messagePump;
+    private long _currentSessionId;
     private int _started;
     private int _disposed;
 
     internal StreamFrameHsmsTransport(
-        IStreamConnection<HsmsTransportFrame> connection,
-        HsmsTransportSessionContext sessionContext,
-        HsmsTransportOptions options,
-        IHsmsTransportTimerFactory? timerFactory)
+        ISessionAwareStreamConnection<HsmsFrame> connection)
     {
         _connection = connection ?? throw new ArgumentNullException(nameof(connection));
-        _sessionContext = sessionContext ?? throw new ArgumentNullException(nameof(sessionContext));
-        options = options ?? throw new ArgumentNullException(nameof(options));
         _events = Channel.CreateUnbounded<HsmsTransportEvent>(new UnboundedChannelOptions
         {
             SingleReader = false,
             SingleWriter = false,
             AllowSynchronousContinuations = false,
         });
-        _t8Monitor = new HsmsT8Monitor(
-            options.T8,
-            OnT8Timeout,
-            timerFactory);
 
         _connection.ConnectionChanged += OnConnectionChanged;
-        _connection.RawBytesReceived = OnRawBytesReceived;
-        _connection.RawBytesSent = OnRawBytesSent;
+        _connection.FrameError += OnFrameError;
     }
 
     public static StreamFrameHsmsTransport Create(
@@ -61,23 +47,18 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
         if (hsmsOptions is null)
             throw new ArgumentNullException(nameof(hsmsOptions));
 
-        var sessionContext = new HsmsTransportSessionContext();
         var adaptedOptions = HsmsStreamConnectionOptionsAdapter.Create(
             isActive,
             hsmsOptions,
             connectionOptions);
-        var connection = new StreamConnection<HsmsTransportFrame>(
+        var connection = new StreamConnection<HsmsFrame>(
             framer ?? new HsmsFramer(),
-            new SessionBoundHsmsFrameCodec(sessionContext),
+            new HsmsFrameCodec(),
             ipAddress,
             port,
             isActive,
             adaptedOptions);
-        return new StreamFrameHsmsTransport(
-            connection,
-            sessionContext,
-            hsmsOptions,
-            timerFactory: null);
+        return new StreamFrameHsmsTransport(connection);
     }
 
     public void Start(CancellationToken cancellationToken)
@@ -117,40 +98,30 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
         if (frame is null)
             throw new ArgumentNullException(nameof(frame));
         ThrowIfDisposed();
-        EnsureCurrentSession(sessionId);
+        RegisterPendingSend(sessionId);
 
-        await _sendGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        PendingSend? pending = null;
         try
         {
-            ThrowIfDisposed();
-            EnsureCurrentSession(sessionId);
-
-            pending = new PendingSend(GetWireLength(frame));
-            lock (_pendingGate)
+            await _connection.SendInSessionAsync(
+                sessionId.Value,
+                frame,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (SessionExpiredException ex)
+        {
+            var closeReason = GetCloseReason(sessionId);
+            if (closeReason is not null)
             {
-                EnsureCurrentSession(sessionId);
-                _pendingSend = pending;
+                ExceptionDispatchInfo.Capture(closeReason).Throw();
             }
 
-            await _connection.SendAsync(
-                new HsmsTransportFrame(sessionId, frame),
-                cancellationToken).ConfigureAwait(false);
-
-            await pending.Completion.Task.ConfigureAwait(false);
+            throw new HsmsTransportSessionExpiredException(
+                sessionId,
+                innerException: ex);
         }
         finally
         {
-            if (pending is not null)
-            {
-                lock (_pendingGate)
-                {
-                    if (ReferenceEquals(_pendingSend, pending))
-                        _pendingSend = null;
-                }
-            }
-
-            _sendGate.Release();
+            CompletePendingSend(sessionId);
         }
     }
 
@@ -159,7 +130,6 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
-        FailPending(new ObjectDisposedException(nameof(StreamFrameHsmsTransport)));
         await _connection.DisposeAsync().ConfigureAwait(false);
 
         if (_messagePump is not null)
@@ -174,9 +144,7 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
         }
 
         _connection.ConnectionChanged -= OnConnectionChanged;
-        _connection.RawBytesReceived = null;
-        _connection.RawBytesSent = null;
-        _t8Monitor.Dispose();
+        _connection.FrameError -= OnFrameError;
         _events.Writer.TryComplete();
     }
 
@@ -185,11 +153,22 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
         Exception? error = null)
     {
         ThrowIfDisposed();
-        if (!_sessionContext.IsCurrent(sessionId))
-            return false;
 
-        lock (_closeReasonGate)
-            _nextCloseReason = error;
+        Exception? previousReason;
+        lock (_sessionGate)
+        {
+            if (_currentSessionId != sessionId.Value ||
+                _connection.CurrentSessionId != sessionId.Value ||
+                !_sessions.TryGetValue(sessionId.Value, out var context) ||
+                context.IsClosed)
+            {
+                return false;
+            }
+
+            previousReason = context.CloseReason;
+            if (error is not null && context.CloseReason is null)
+                context.CloseReason = error;
+        }
 
         try
         {
@@ -198,22 +177,26 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
         }
         catch
         {
-            lock (_closeReasonGate)
-                _nextCloseReason = null;
+            if (error is not null)
+                RestoreCloseReason(sessionId, error, previousReason);
             throw;
         }
     }
 
     private async Task PumpMessagesAsync()
     {
-        var messages = _connection.GetMessages(CancellationToken.None).GetAsyncEnumerator();
+        var messages = _connection
+            .GetSessionMessages(CancellationToken.None)
+            .GetAsyncEnumerator();
         try
         {
             while (await messages.MoveNextAsync().ConfigureAwait(false))
             {
                 var message = messages.Current;
                 if (!_events.Writer.TryWrite(
-                    HsmsTransportEvent.FrameReceived(message.SessionId, message.Frame)))
+                    HsmsTransportEvent.FrameReceived(
+                        new HsmsTransportSessionId(message.SessionId),
+                        message.Message)))
                 {
                     break;
                 }
@@ -235,93 +218,127 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
     {
         if (state == ConnectionState.Connected)
         {
-            _t8Monitor.Reset();
-            var sessionId = _sessionContext.Open();
-            _events.Writer.TryWrite(HsmsTransportEvent.SessionOpened(sessionId));
+            var openedSessionId = _connection.CurrentSessionId;
+            if (openedSessionId <= 0)
+            {
+                _events.Writer.TryComplete(
+                    new InvalidOperationException(
+                        "StreamFrame published Connected without a valid session identifier."));
+                return;
+            }
+
+            lock (_sessionGate)
+            {
+                _sessions.Add(openedSessionId, new SessionContext());
+                Volatile.Write(ref _currentSessionId, openedSessionId);
+            }
+
+            _events.Writer.TryWrite(
+                HsmsTransportEvent.SessionOpened(
+                    new HsmsTransportSessionId(openedSessionId)));
             return;
         }
 
-        if (!_sessionContext.TryClose(out var closedSessionId))
+        var closedSessionValue = Interlocked.Exchange(ref _currentSessionId, 0);
+        if (closedSessionValue <= 0)
             return;
 
-        _t8Monitor.Reset();
-        var exception = TakeCloseReason();
-        FailPending(
-            exception ?? new HsmsTransportSessionExpiredException(closedSessionId));
-        _events.Writer.TryWrite(HsmsTransportEvent.SessionClosed(closedSessionId, exception));
+        Exception? closeReason = null;
+        lock (_sessionGate)
+        {
+            if (_sessions.TryGetValue(closedSessionValue, out var context))
+            {
+                context.IsClosed = true;
+                closeReason = context.CloseReason;
+                RemoveSessionIfComplete(closedSessionValue, context);
+            }
+        }
+
+        _events.Writer.TryWrite(
+            HsmsTransportEvent.SessionClosed(
+                new HsmsTransportSessionId(closedSessionValue),
+                closeReason));
     }
 
-    private void OnRawBytesReceived(ReadOnlyMemory<byte> bytes)
-        => _t8Monitor.Observe(bytes.Span);
-
-    private void OnRawBytesSent(ReadOnlyMemory<byte> bytes)
+    private void OnFrameError(object? sender, FrameErrorEventArgs args)
     {
-        PendingSend? completed = null;
-        lock (_pendingGate)
+        if (args.Kind != FrameErrorKind.IncompleteFrameTimeout)
+            return;
+
+        var sessionValue = Volatile.Read(ref _currentSessionId);
+        if (sessionValue <= 0)
+            return;
+
+        lock (_sessionGate)
         {
-            var pending = _pendingSend;
-            if (pending is null || pending.Completion.Task.IsCompleted)
+            if (_currentSessionId == sessionValue &&
+                _sessions.TryGetValue(sessionValue, out var context) &&
+                !context.IsClosed &&
+                context.CloseReason is null)
+            {
+                context.CloseReason = new HsmsT8TimeoutException(
+                    new HsmsTransportSessionId(sessionValue));
+            }
+        }
+    }
+
+    private void RegisterPendingSend(HsmsTransportSessionId sessionId)
+    {
+        lock (_sessionGate)
+        {
+            if (_currentSessionId != sessionId.Value ||
+                _connection.CurrentSessionId != sessionId.Value ||
+                !_sessions.TryGetValue(sessionId.Value, out var context) ||
+                context.IsClosed)
+            {
+                throw new HsmsTransportSessionExpiredException(sessionId);
+            }
+
+            context.PendingSends++;
+        }
+    }
+
+    private void CompletePendingSend(HsmsTransportSessionId sessionId)
+    {
+        lock (_sessionGate)
+        {
+            if (!_sessions.TryGetValue(sessionId.Value, out var context))
                 return;
 
-            pending.RemainingBytes -= bytes.Length;
-            if (pending.RemainingBytes == 0)
-                completed = pending;
-            else if (pending.RemainingBytes < 0)
+            context.PendingSends--;
+            RemoveSessionIfComplete(sessionId.Value, context);
+        }
+    }
+
+    private Exception? GetCloseReason(HsmsTransportSessionId sessionId)
+    {
+        lock (_sessionGate)
+        {
+            return _sessions.TryGetValue(sessionId.Value, out var context)
+                ? context.CloseReason
+                : null;
+        }
+    }
+
+    private void RestoreCloseReason(
+        HsmsTransportSessionId sessionId,
+        Exception attemptedReason,
+        Exception? previousReason)
+    {
+        lock (_sessionGate)
+        {
+            if (_sessions.TryGetValue(sessionId.Value, out var context) &&
+                ReferenceEquals(context.CloseReason, attemptedReason))
             {
-                pending.Completion.TrySetException(
-                    new InvalidOperationException("StreamFrame reported more sent bytes than the pending HSMS frame contains."));
+                context.CloseReason = previousReason;
             }
         }
-
-        completed?.Completion.TrySetResult(true);
     }
 
-    private void OnT8Timeout()
+    private void RemoveSessionIfComplete(long sessionId, SessionContext context)
     {
-        if (Volatile.Read(ref _disposed) != 0)
-            return;
-
-        try
-        {
-            if (_sessionContext.TryGetCurrent(out var sessionId))
-            {
-                TryCloseSession(
-                    sessionId,
-                    new HsmsT8TimeoutException(sessionId));
-            }
-        }
-        catch (ObjectDisposedException)
-        {
-        }
-        catch (Exception ex)
-        {
-            FailPending(ex);
-        }
-    }
-
-    private void FailPending(Exception exception)
-    {
-        PendingSend? pending;
-        lock (_pendingGate)
-            pending = _pendingSend;
-
-        pending?.Completion.TrySetException(exception);
-    }
-
-    private Exception? TakeCloseReason()
-    {
-        lock (_closeReasonGate)
-        {
-            var exception = _nextCloseReason;
-            _nextCloseReason = null;
-            return exception;
-        }
-    }
-
-    private void EnsureCurrentSession(HsmsTransportSessionId sessionId)
-    {
-        if (!_sessionContext.IsCurrent(sessionId))
-            throw new HsmsTransportSessionExpiredException(sessionId);
+        if (context.IsClosed && context.PendingSends == 0)
+            _sessions.Remove(sessionId);
     }
 
     private void ThrowIfDisposed()
@@ -330,23 +347,12 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
             throw new ObjectDisposedException(nameof(StreamFrameHsmsTransport));
     }
 
-    private static long GetWireLength(HsmsFrame frame)
-        => checked(
-            (long)HsmsFramer.LengthPrefixSize +
-            HsmsMessageHeader.EncodedSize +
-            frame.Body.Length);
-
-    private sealed class PendingSend
+    private sealed class SessionContext
     {
-        public PendingSend(long remainingBytes)
-        {
-            RemainingBytes = remainingBytes;
-            Completion = new TaskCompletionSource<bool>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-        }
+        public int PendingSends { get; set; }
 
-        public long RemainingBytes { get; set; }
+        public bool IsClosed { get; set; }
 
-        public TaskCompletionSource<bool> Completion { get; }
+        public Exception? CloseReason { get; set; }
     }
 }

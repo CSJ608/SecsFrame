@@ -101,6 +101,24 @@ public sealed class HsmsConnectionOptionsTests
                     (long)int.MaxValue + 1)));
     }
 
+    [Fact]
+    public void Submillisecond_T8_is_rejected_instead_of_rounded()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => Create(
+                t8: TimeSpan.FromTicks(
+                    TimeSpan.TicksPerMillisecond + 1)));
+    }
+
+    [Fact]
+    public void T8_beyond_StreamFrame_range_is_rejected()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => Create(
+                t8: TimeSpan.FromMilliseconds(
+                    (long)int.MaxValue + 1)));
+    }
+
     private static HsmsConnectionOptions Create(
         IPAddress? ipAddress = null,
         int port = 5000,

@@ -31,6 +31,7 @@ internal static class HsmsStreamConnectionOptionsAdapter
             KeepAliveIntervalMs = source.KeepAliveIntervalMs,
             ReceiveQueueCapacity = source.ReceiveQueueCapacity,
             ReceiveIdleTimeoutMs = source.ReceiveIdleTimeoutMs,
+            IncompleteFrameTimeoutMs = hsmsOptions.T8Milliseconds,
         };
 
         if (isActive)

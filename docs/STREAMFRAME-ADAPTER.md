@@ -1,91 +1,70 @@
-# StreamFrame 内部适配
+# StreamFrame 会话适配
 
-## 背景
+## 上游基线
 
-SecsFrame 当前依赖 StreamFrame 2.2.0。以下上游能力仍在跟踪：
+SecsFrame 固定依赖官方 [StreamFrame 2.3.0](https://www.nuget.org/packages/StreamFrame/2.3.0)。
+该版本已经发布并解决此前跟踪的两项能力缺口：
 
-- [StreamFrame #38](https://github.com/CSJ608/StreamFrame/issues/38)：
-  未完成帧超时已经合入上游 <code>main</code>，但尚未进入正式包；
-- [StreamFrame #39](https://github.com/CSJ608/StreamFrame/issues/39)：
-  会话感知的发送确认与消息上下文正在实现。
+- [#38](https://github.com/CSJ608/StreamFrame/issues/38) / [PR #41](https://github.com/CSJ608/StreamFrame/pull/41)：
+  未完成帧超时与 <code>IncompleteFrameTimeout</code> 诊断；
+- [#39](https://github.com/CSJ608/StreamFrame/issues/39) / [PR #42](https://github.com/CSJ608/StreamFrame/pull/42)：
+  会话编号、会话绑定发送、写出确认和带会话归属的接收消息。
 
-StreamFrame 现有 <code>SendAsync</code> 在消息进入连接级队列后完成，队列
-会跨 TCP 重连保留；<code>GetMessages</code> 也是跨重连的稳定消息流。
-这些语义适合通用业务连接，但不足以支撑 HSMS 的严格会话边界。因此
-SecsFrame 在内部 <code>IHsmsTransport</code> 后提供临时适配，公共 API
-不依赖 StreamFrame 的队列或原始字节回调。
+SecsFrame 不再维护基于原始字节回调的 T8 监视器、发送确认计数器、会话
+信封 codec 或自建 TCP Session ID。公共 API 和内部
+<code>IHsmsTransport</code> 契约保持不变，上层 HSMS 状态机不直接依赖
+StreamFrame 类型。
 
-## 会话事件
+## 会话边界
 
-内部传输输出同一条有序事件流：
+<code>StreamFrameHsmsTransport</code> 只消费
+<code>ISessionAwareStreamConnection&lt;HsmsFrame&gt;</code>：
 
-- <code>SessionOpened</code>：TCP Connected 后分配单调递增 Session ID；
-- <code>FrameReceived</code>：携带 codec 解码时绑定的 Session ID；
-- <code>SessionClosed</code>：会话失效，超时时附带原因。
+- <code>CurrentSessionId</code> 作为 TCP 会话的单调编号；
+- <code>GetSessionMessages</code> 保留帧的原始会话归属，迟到消费不会被
+  标记为新会话；
+- <code>SendInSessionAsync</code> 把帧绑定到指定会话，旧会话帧不会在
+  重连后重放；
+- 发送任务仅在整帧写入本机 Socket 后完成，T3/T6 因而仍从明确的写出
+  完成点启动。
 
-接收帧不是在业务消费时读取“当前会话”，因此旧解码任务的迟到结果仍
-保留旧 Session ID。状态机可以按 ID 丢弃已关闭会话的事件。
-状态机还可以通过 <code>TryCloseSession</code> 只关闭匹配的当前 Session
-ID，并把协议错误或 T6/T7 超时原因带入 <code>SessionClosed</code>。
+<code>GetMessages</code> 与 <code>GetSessionMessages</code> 是同一接收通道
+的竞争消费视图，适配器只使用后者。发送中途失败时，远端是否收到部分字节
+仍是未知状态；上层必须依靠事务关联、超时和业务幂等恢复，不能假设远端
+一定没有收到。
 
-## 发送确认与不重放
+StreamFrame 的 <code>SessionExpiredException</code> 在内部边界转换为
+<code>HsmsTransportSessionExpiredException</code>，并保留原异常。协议
+主动关闭或 T8 关闭时，适配器按 TCP Session ID 保留首个关闭原因，使
+<code>SessionClosed</code> 与尚未完成的发送观察到同一个协议异常。
 
-适配器的发送路径一次只允许一个待确认帧：
-
-1. 入队前确认调用方 Session ID 仍是当前会话；
-2. 信封进入 StreamFrame codec 时再次确认，关闭会话的信封编码失败；
-3. 根据 <code>RawBytesSent</code> 每次实际 Socket 写出的字节数累计；
-4. 四字节长度前缀、十字节头和 Body 全部写完后完成发送任务；
-5. 会话先关闭时，以明确的会话失效异常完成等待任务。
-
-因此会话层 T6 与事务层 T3 都从发送任务成功完成后启动。调用取消若发生
-在进入 StreamFrame 队列之前会取消发送；一旦成功入队，适配器等待明确
-的写完或会话失效结果，避免向调用方返回含糊状态。
-
-旧信封即使因极窄竞态留在 StreamFrame 的跨重连队列中，也会在新会话
-编码前失败，绝不会写入 Socket。当前 fail-closed 代价是该编码失败会让
-StreamFrame 再重建一次连接；上游 #39 提供原生会话队列后可消除此代价。
-
-## T5 连接重试
+## T5 与 T8
 
 内部 <code>HsmsTransportOptions</code> 要求调用方显式给出 T5 与 T8，
-不内置未经授权标准核对的默认值。Active 连接通过独立选项副本把 T5
-无损转换为 StreamFrame 的整毫秒连接重试间隔，并把最大退避设置为零，
-使连续失败保持固定间隔。原 <code>StreamConnectionOptions</code> 不会
-被修改，其余队列、缓冲、KeepAlive 和解码选项逐项保留。
+不内置未经授权标准核对的默认值。Active 连接把 T5 映射为固定的
+<code>ConnectRetryDelayMs</code> 并关闭最大退避；Passive 监听重试配置
+保持调用方设置。原 <code>StreamConnectionOptions</code> 始终复制后再
+适配，不会被原地修改。
 
-Passive 端的监听失败重试不是当前适配器定义的 T5 行为，因此不会覆盖
-<code>AcceptRetryDelayMs</code> 或最大退避设置。T5 必须为正值、可由
-整毫秒精确表示，并且不超过 StreamFrame 2.2.0 的 <code>int</code>
-毫秒范围；适配器拒绝截断、舍入和溢出。
+T8 映射为 StreamFrame 的 <code>IncompleteFrameTimeoutMs</code>。因此
+T5/T8 都必须为正值、能由整毫秒精确表示且不超过 <code>int.MaxValue</code>
+毫秒；不允许截断、舍入或溢出。调用方在源 StreamFrame 选项中设置的
+<code>IncompleteFrameTimeoutMs</code> 会被显式 HSMS T8 覆盖。
 
-## T8 接收超时
+StreamFrame 只在已有未完成帧时运行该超时：空闲连接和完整帧后的静默不
+触发；接收进展重置计时；到期先发布
+<code>FrameErrorKind.IncompleteFrameTimeout</code>，再拆除对应会话。
+适配器把该诊断转换为携带 transport Session ID 的
+<code>HsmsT8TimeoutException</code>，不再次请求重连。
 
-适配器直接观察 StreamFrame 的原始接收分片，并独立跟踪 HSMS 四字节
-大端长度前缀与剩余 Payload：
+## 验证边界
 
-- 从未收到字节或完整帧后的空闲期不计时；
-- 收到部分长度头或部分 Payload 后启动计时；
-- 每次收到后续字节重新计时；
-- 当前帧完整且没有下一帧残片时停止计时；
-- 超时触发当前连接重建，并用携带 transport Session ID 的
-  <code>HsmsT8TimeoutException</code> 关闭会话。
+适配器单元测试覆盖原生 Session ID、迟到消息、发送完成、并发入队、会话
+失效、显式关闭原因和 T8 诊断映射。真实 TCP 回环测试覆盖分片帧收发与
+实际 T8 到期；完整套件继续覆盖 T3/T6 从发送完成点启动以及旧会话不
+重放。
 
-每次接收进展都创建带代次标识的新计时器。旧计时器即使已经排队、在
-Dispose 后仍执行回调，也不能使后续进展或替换 TCP 会话超时。测试使用
-手动计时器覆盖部分长度头、部分 Payload、进度重置、完整帧后空闲、连续
-完整帧、下一帧残片和跨会话陈旧回调；真实 TCP 回环验证分片收包与实际
-T8 到期关闭。
-
-以上 T5/T8 是当前工程基线。具体默认值、连接失败分类、T5 起止点、T8
-对每个网络分片还是协议字符的精确解释，以及标准结论，仍须依据团队合法
-获得的 SEMI E37/E37.1 版本及一致性测试核对。
-
-## 替换条件
-
-当 #38/#39 都发布稳定 NuGet API 后：
-
-1. 运行现有会话、发送确认、迟到消息和超时测试向量验证语义等价；
-2. 用原生 Session ID、发送完成任务和未完成帧超时替换内部回调适配；
-3. 删除旧信封 fail-closed 路径；
-4. 保持 <code>IHsmsTransport</code> 及其上层状态机契约不变。
+这些测试证明当前工程契约与 StreamFrame 2.3.0 的互操作行为，不构成
+SEMI 合规声明。T5/T8 的标准默认值、精确启停边界和异常恢复仍须依据团队
+合法获得的 SEMI E37/E37.1 版本及一致性测试核对。仓库不得提交标准正文、
+表格或 Schema。
