@@ -26,4 +26,13 @@ public enum GemOperation
 
     /// <summary>Set the equipment clock.</summary>
     SetClock,
+
+    /// <summary>Replace the Equipment report definitions.</summary>
+    DefineReports,
+
+    /// <summary>Replace the Equipment event-to-report links.</summary>
+    LinkEventReports,
+
+    /// <summary>Send or handle a Collection Event.</summary>
+    CollectionEvent,
 }

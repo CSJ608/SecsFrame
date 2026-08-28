@@ -71,6 +71,158 @@ internal static class GemMessageCodec
         return root.Items;
     }
 
+    internal static SecsItem EncodeReportDefinitions(
+        SecsItem dataId,
+        IEnumerable<GemReportDefinition> reports)
+    {
+        if (dataId is null)
+            throw new ArgumentNullException(nameof(dataId));
+
+        var definitions = GemCollection.Copy(reports, nameof(reports));
+        ValidateUniqueReportDefinitions(definitions, nameof(reports));
+        var encoded = new SecsItem[definitions.Count];
+        for (var index = 0; index < definitions.Count; index++)
+        {
+            var definition = definitions[index];
+            encoded[index] = SecsItem.List(
+                definition.ReportId,
+                SecsItem.List(definition.ValueIds));
+        }
+
+        return SecsItem.List(dataId, SecsItem.List(encoded));
+    }
+
+    internal static (SecsItem DataId, IReadOnlyList<GemReportDefinition> Reports)
+        DecodeReportDefinitions(SecsItem? root)
+    {
+        const string operation = "report-definition request";
+        var body = RequireList(root, 2, operation);
+        var encoded = DecodeList(body[1], operation);
+        var definitions = new GemReportDefinition[encoded.Count];
+        var identifiers = new HashSet<SecsItem>();
+        for (var index = 0; index < encoded.Count; index++)
+        {
+            var fields = RequireList(encoded[index], 2, operation);
+            if (!identifiers.Add(fields[0]))
+            {
+                throw new GemProtocolException(
+                    $"The {operation} contains duplicate report identifier at index {index}.");
+            }
+
+            definitions[index] = new GemReportDefinition(
+                fields[0],
+                DecodeList(fields[1], operation));
+        }
+
+        return (body[0], Array.AsReadOnly(definitions));
+    }
+
+    internal static SecsItem EncodeEventReportLinks(
+        SecsItem dataId,
+        IEnumerable<GemEventReportLink> links)
+    {
+        if (dataId is null)
+            throw new ArgumentNullException(nameof(dataId));
+
+        var eventLinks = GemCollection.Copy(links, nameof(links));
+        ValidateUniqueEventLinks(eventLinks, nameof(links));
+        var encoded = new SecsItem[eventLinks.Count];
+        for (var index = 0; index < eventLinks.Count; index++)
+        {
+            var link = eventLinks[index];
+            encoded[index] = SecsItem.List(
+                link.EventId,
+                SecsItem.List(link.ReportIds));
+        }
+
+        return SecsItem.List(dataId, SecsItem.List(encoded));
+    }
+
+    internal static (SecsItem DataId, IReadOnlyList<GemEventReportLink> Links)
+        DecodeEventReportLinks(SecsItem? root)
+    {
+        const string operation = "event-report-link request";
+        var body = RequireList(root, 2, operation);
+        var encoded = DecodeList(body[1], operation);
+        var links = new GemEventReportLink[encoded.Count];
+        var identifiers = new HashSet<SecsItem>();
+        for (var index = 0; index < encoded.Count; index++)
+        {
+            var fields = RequireList(encoded[index], 2, operation);
+            if (!identifiers.Add(fields[0]))
+            {
+                throw new GemProtocolException(
+                    $"The {operation} contains duplicate event identifier at index {index}.");
+            }
+
+            var reportIds = DecodeList(fields[1], operation);
+            RequireUniqueIdentifiers(
+                reportIds,
+                operation,
+                "report",
+                index);
+            links[index] = new GemEventReportLink(fields[0], reportIds);
+        }
+
+        return (body[0], Array.AsReadOnly(links));
+    }
+
+    internal static SecsItem EncodeCollectionEvent(
+        GemCollectionEvent collectionEvent)
+    {
+        if (collectionEvent is null)
+            throw new ArgumentNullException(nameof(collectionEvent));
+
+        var identifiers = new HashSet<SecsItem>();
+        var encoded = new SecsItem[collectionEvent.Reports.Count];
+        for (var index = 0; index < collectionEvent.Reports.Count; index++)
+        {
+            var report = collectionEvent.Reports[index];
+            if (!identifiers.Add(report.ReportId))
+            {
+                throw new ArgumentException(
+                    $"The Collection Event contains duplicate report identifier at index {index}.",
+                    nameof(collectionEvent));
+            }
+
+            encoded[index] = SecsItem.List(
+                report.ReportId,
+                SecsItem.List(report.Values));
+        }
+
+        return SecsItem.List(
+            collectionEvent.DataId,
+            collectionEvent.EventId,
+            SecsItem.List(encoded));
+    }
+
+    internal static GemCollectionEvent DecodeCollectionEvent(SecsItem? root)
+    {
+        const string operation = "Collection Event";
+        var body = RequireList(root, 3, operation);
+        var encoded = DecodeList(body[2], operation);
+        var reports = new GemCollectedReport[encoded.Count];
+        var identifiers = new HashSet<SecsItem>();
+        for (var index = 0; index < encoded.Count; index++)
+        {
+            var fields = RequireList(encoded[index], 2, operation);
+            if (!identifiers.Add(fields[0]))
+            {
+                throw new GemProtocolException(
+                    $"The {operation} contains duplicate report identifier at index {index}.");
+            }
+
+            reports[index] = new GemCollectedReport(
+                fields[0],
+                DecodeList(fields[1], operation));
+        }
+
+        return new GemCollectionEvent(
+            body[0],
+            body[1],
+            reports);
+    }
+
     internal static SecsItem EncodeClock(DateTimeOffset value, GemClockCodec codec)
         => SecsItem.Ascii(codec.Encode(value));
 
@@ -151,5 +303,55 @@ internal static class GemMessageCodec
         }
 
         return item.GetString();
+    }
+
+    private static void ValidateUniqueReportDefinitions(
+        IReadOnlyList<GemReportDefinition> reports,
+        string parameterName)
+    {
+        var identifiers = new HashSet<SecsItem>();
+        for (var index = 0; index < reports.Count; index++)
+        {
+            if (!identifiers.Add(reports[index].ReportId))
+            {
+                throw new ArgumentException(
+                    $"Report identifier at index {index} is duplicated.",
+                    parameterName);
+            }
+        }
+    }
+
+    private static void ValidateUniqueEventLinks(
+        IReadOnlyList<GemEventReportLink> links,
+        string parameterName)
+    {
+        var identifiers = new HashSet<SecsItem>();
+        for (var index = 0; index < links.Count; index++)
+        {
+            if (!identifiers.Add(links[index].EventId))
+            {
+                throw new ArgumentException(
+                    $"Event identifier at index {index} is duplicated.",
+                    parameterName);
+            }
+        }
+    }
+
+    private static void RequireUniqueIdentifiers(
+        IReadOnlyList<SecsItem> identifiers,
+        string operation,
+        string kind,
+        int parentIndex)
+    {
+        var unique = new HashSet<SecsItem>();
+        for (var index = 0; index < identifiers.Count; index++)
+        {
+            if (!unique.Add(identifiers[index]))
+            {
+                throw new GemProtocolException(
+                    $"The {operation} entry at index {parentIndex} contains " +
+                    $"duplicate {kind} identifier at index {index}.");
+            }
+        }
     }
 }

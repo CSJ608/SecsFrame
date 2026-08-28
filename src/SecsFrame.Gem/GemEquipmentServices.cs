@@ -14,6 +14,8 @@ public sealed class GemEquipmentServices : IDisposable
 #endif
     private readonly Dictionary<SecsItem, GemValueRegistration> _statusVariables = new();
     private readonly Dictionary<SecsItem, GemValueRegistration> _equipmentConstants = new();
+    private readonly Dictionary<SecsItem, GemReportDefinition> _reportDefinitions = new();
+    private readonly Dictionary<SecsItem, GemEventReportLink> _eventReportLinks = new();
     private int _disposed;
 
     /// <summary>Creates Equipment GEM services without taking ownership of the endpoint.</summary>
@@ -87,6 +89,51 @@ public sealed class GemEquipmentServices : IDisposable
             provider,
             "equipment constant");
 
+    /// <summary>Collects and sends one linked Collection Event to the Host.</summary>
+    public async Task SendCollectionEventAsync(
+        SecsItem dataId,
+        SecsItem eventId,
+        CancellationToken cancellationToken = default)
+    {
+        if (dataId is null)
+            throw new ArgumentNullException(nameof(dataId));
+        if (eventId is null)
+            throw new ArgumentNullException(nameof(eventId));
+
+        var executions = GetReportExecutions(eventId);
+        var reports = new GemCollectedReport[executions.Count];
+        for (var reportIndex = 0; reportIndex < executions.Count; reportIndex++)
+        {
+            var execution = executions[reportIndex];
+            var values = new SecsItem[execution.Providers.Count];
+            for (var valueIndex = 0; valueIndex < execution.Providers.Count; valueIndex++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                values[valueIndex] = await execution.Providers[valueIndex](
+                    cancellationToken).ConfigureAwait(false) ??
+                    throw new GemProtocolException(
+                        $"The Collection Event provider for report index " +
+                        $"{reportIndex}, value index {valueIndex} returned null.");
+            }
+
+            reports[reportIndex] = new GemCollectedReport(
+                execution.ReportId,
+                values);
+        }
+
+        var response = await _services.SendRequestAsync(
+            Profile.CollectionEvent,
+            GemOperation.CollectionEvent,
+            GemMessageCodec.EncodeCollectionEvent(
+                new GemCollectionEvent(dataId, eventId, reports)),
+            cancellationToken).ConfigureAwait(false);
+        _services.RequireAccepted(
+            GemOperation.CollectionEvent,
+            GemMessageCodec.DecodeAcknowledgement(
+                response.Message.RootItem,
+                "Collection Event reply"));
+    }
+
     /// <summary>
     /// Observes session state and dispatches a registered GEM or application route.
     /// </summary>
@@ -105,6 +152,8 @@ public sealed class GemEquipmentServices : IDisposable
         {
             _statusVariables.Clear();
             _equipmentConstants.Clear();
+            _reportDefinitions.Clear();
+            _eventReportLinks.Clear();
         }
         _services.Dispose();
     }
@@ -117,6 +166,8 @@ public sealed class GemEquipmentServices : IDisposable
         _services.AddRoute(Profile.ReadEquipmentConstants, HandleEquipmentConstantsAsync);
         _services.AddRoute(Profile.GetClock, HandleGetClockAsync);
         _services.AddRoute(Profile.SetClock, HandleSetClockAsync);
+        _services.AddRoute(Profile.DefineReports, HandleDefineReportsAsync);
+        _services.AddRoute(Profile.LinkEventReports, HandleLinkEventReportsAsync);
     }
 
     private ValueTask<SecsMessage?> HandleOnlineAsync(
@@ -225,6 +276,50 @@ public sealed class GemEquipmentServices : IDisposable
                     : Profile.FailedAcknowledgement));
     }
 
+    private async ValueTask<SecsMessage?> HandleDefineReportsAsync(
+        HsmsPrimaryContext context,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        GemMessageCodec.RequireReplyExpected(context, "report-definition request");
+        var request = GemMessageCodec.DecodeReportDefinitions(
+            context.Message.RootItem);
+        var definitions = TryStageReportDefinitions(request.Reports);
+        if (definitions is not null)
+            ApplyReportDefinitions(definitions);
+        await _services.ReplyAsync(
+            context,
+            Profile.DefineReports,
+            GemMessageCodec.EncodeAcknowledgement(
+                definitions is null
+                    ? Profile.FailedAcknowledgement
+                    : Profile.AcceptedAcknowledgement),
+            cancellationToken).ConfigureAwait(false);
+        return null;
+    }
+
+    private async ValueTask<SecsMessage?> HandleLinkEventReportsAsync(
+        HsmsPrimaryContext context,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        GemMessageCodec.RequireReplyExpected(context, "event-report-link request");
+        var request = GemMessageCodec.DecodeEventReportLinks(
+            context.Message.RootItem);
+        var links = TryStageEventReportLinks(request.Links);
+        if (links is not null)
+            ApplyEventReportLinks(links);
+        await _services.ReplyAsync(
+            context,
+            Profile.LinkEventReports,
+            GemMessageCodec.EncodeAcknowledgement(
+                links is null
+                    ? Profile.FailedAcknowledgement
+                    : Profile.AcceptedAcknowledgement),
+            cancellationToken).ConfigureAwait(false);
+        return null;
+    }
+
     private GemValueRegistration RegisterValue(
         Dictionary<SecsItem, GemValueRegistration> registrations,
         SecsItem identifier,
@@ -238,8 +333,7 @@ public sealed class GemEquipmentServices : IDisposable
 
         lock (_gate)
         {
-            if (Volatile.Read(ref _disposed) != 0)
-                throw new ObjectDisposedException(nameof(GemEquipmentServices));
+            ThrowIfDisposed();
 
             if (registrations.ContainsKey(identifier))
             {
@@ -312,5 +406,154 @@ public sealed class GemEquipmentServices : IDisposable
         }
 
         return providers;
+    }
+
+    private Dictionary<SecsItem, GemReportDefinition>? TryStageReportDefinitions(
+        IReadOnlyList<GemReportDefinition> reports)
+    {
+        var definitions = new Dictionary<SecsItem, GemReportDefinition>();
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            foreach (var report in reports)
+            {
+                foreach (var valueId in report.ValueIds)
+                {
+                    if (!_statusVariables.ContainsKey(valueId))
+                        return null;
+                }
+
+                definitions.Add(report.ReportId, report);
+            }
+        }
+
+        return definitions;
+    }
+
+    private Dictionary<SecsItem, GemEventReportLink>? TryStageEventReportLinks(
+        IReadOnlyList<GemEventReportLink> links)
+    {
+        var staged = new Dictionary<SecsItem, GemEventReportLink>();
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            foreach (var link in links)
+            {
+                foreach (var reportId in link.ReportIds)
+                {
+                    if (!_reportDefinitions.ContainsKey(reportId))
+                        return null;
+                }
+
+                staged.Add(link.EventId, link);
+            }
+        }
+
+        return staged;
+    }
+
+    private void ApplyReportDefinitions(
+        IReadOnlyDictionary<SecsItem, GemReportDefinition> definitions)
+    {
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            _reportDefinitions.Clear();
+            foreach (var pair in definitions)
+                _reportDefinitions.Add(pair.Key, pair.Value);
+
+            var staleEvents = new List<SecsItem>();
+            foreach (var pair in _eventReportLinks)
+            {
+                foreach (var reportId in pair.Value.ReportIds)
+                {
+                    if (!_reportDefinitions.ContainsKey(reportId))
+                    {
+                        staleEvents.Add(pair.Key);
+                        break;
+                    }
+                }
+            }
+
+            foreach (var eventId in staleEvents)
+                _eventReportLinks.Remove(eventId);
+        }
+    }
+
+    private void ApplyEventReportLinks(
+        IReadOnlyDictionary<SecsItem, GemEventReportLink> links)
+    {
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            _eventReportLinks.Clear();
+            foreach (var pair in links)
+                _eventReportLinks.Add(pair.Key, pair.Value);
+        }
+    }
+
+    private IReadOnlyList<ReportExecution> GetReportExecutions(SecsItem eventId)
+    {
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            if (!_eventReportLinks.TryGetValue(eventId, out var link))
+            {
+                throw new InvalidOperationException(
+                    $"No report link is configured for Collection Event {eventId}.");
+            }
+
+            var executions = new ReportExecution[link.ReportIds.Count];
+            for (var reportIndex = 0; reportIndex < link.ReportIds.Count; reportIndex++)
+            {
+                var reportId = link.ReportIds[reportIndex];
+                if (!_reportDefinitions.TryGetValue(reportId, out var definition))
+                {
+                    throw new InvalidOperationException(
+                        $"Collection Event {eventId} references an undefined report.");
+                }
+
+                var providers = new GemValueProvider[definition.ValueIds.Count];
+                for (var valueIndex = 0; valueIndex < definition.ValueIds.Count; valueIndex++)
+                {
+                    if (!_statusVariables.TryGetValue(
+                        definition.ValueIds[valueIndex],
+                        out var registration))
+                    {
+                        throw new InvalidOperationException(
+                            $"Report {reportId} references an unregistered status variable.");
+                    }
+
+                    providers[valueIndex] = registration.Provider;
+                }
+
+                executions[reportIndex] = new ReportExecution(
+                    reportId,
+                    Array.AsReadOnly(providers));
+            }
+
+            return Array.AsReadOnly(executions);
+        }
+    }
+
+    private void ThrowIfDisposed()
+    {
+        if (Volatile.Read(ref _disposed) != 0)
+            throw new ObjectDisposedException(nameof(GemEquipmentServices));
+    }
+
+    private sealed class ReportExecution
+    {
+        internal ReportExecution(
+            SecsItem reportId,
+            IReadOnlyList<GemValueProvider> providers)
+        {
+            ReportId = reportId;
+            Providers = providers;
+        }
+
+        internal SecsItem ReportId { get; }
+
+        internal IReadOnlyList<GemValueProvider> Providers { get; }
     }
 }
