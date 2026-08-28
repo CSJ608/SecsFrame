@@ -55,5 +55,9 @@
   同时分类运输、协议、会话、事务、T3/T6/T7/T8 和解码故障。
 - 连接状态与解码失败事件公开可选诊断；操作异常可显式分类，调用方取消、
   释放和生命周期误用不会被误报为协议故障。
+- 增加运行期 <code>HsmsPrimaryRouter</code>，按 Stream/Function 动态注册
+  处理器并在原事务上自动回复，无需预生成消息类型或完整消息目录。
+- 未匹配连接事件继续由应用处理；处理器注册可释放替换，异常、取消和
+  W-Bit 契约错误明确传播。
 
 [Unreleased]: https://github.com/CSJ608/SecsFrame/compare/main...HEAD
