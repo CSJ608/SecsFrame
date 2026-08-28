@@ -2,15 +2,19 @@ namespace SecsFrame.Tests;
 
 internal sealed class ManualHsmsTransportTimerFactory : IHsmsTransportTimerFactory
 {
-    public ManualHsmsTransportTimer? Timer { get; private set; }
+    private readonly List<ManualHsmsTransportTimer> _timers = new();
+
+    public IReadOnlyList<ManualHsmsTransportTimer> Timers => _timers;
+
+    public ManualHsmsTransportTimer? Timer => _timers.Count == 0
+        ? null
+        : _timers[^1];
 
     public IHsmsTransportTimer Create(Action callback)
     {
-        if (Timer is not null)
-            throw new InvalidOperationException("Only one timer is expected.");
-
-        Timer = new ManualHsmsTransportTimer(callback);
-        return Timer;
+        var timer = new ManualHsmsTransportTimer(callback);
+        _timers.Add(timer);
+        return timer;
     }
 
     internal sealed class ManualHsmsTransportTimer : IHsmsTransportTimer
@@ -28,6 +32,8 @@ internal sealed class ManualHsmsTransportTimerFactory : IHsmsTransportTimerFacto
 
         public bool IsArmed => DueTime != Timeout.InfiniteTimeSpan;
 
+        public bool IsDisposed { get; private set; }
+
         public void Change(TimeSpan dueTime)
         {
             DueTime = dueTime;
@@ -43,9 +49,13 @@ internal sealed class ManualHsmsTransportTimerFactory : IHsmsTransportTimerFacto
             _callback();
         }
 
+        public void ForceFire()
+            => _callback();
+
         public void Dispose()
         {
             DueTime = Timeout.InfiniteTimeSpan;
+            IsDisposed = true;
         }
     }
 }

@@ -200,7 +200,9 @@ public sealed partial class HsmsSessionStateMachineTests
         var send = manager.SendAsync(1, new SecsMessage(1, 1, true));
         await WaitUntilAsync(() => transport.SendCount == 2).ConfigureAwait(true);
         transport.CompleteSend(1);
-        await WaitUntilAsync(() => t3Timers.Timers.Count == 1)
+        await WaitUntilAsync(
+            () => t3Timers.Timers.Count == 1 &&
+                t3Timers.Timers[0].IsArmed)
             .ConfigureAwait(true);
         Assert.Equal(T3, t3Timers.Timers[0].DueTime);
         t3Timers.Timers[0].Fire();

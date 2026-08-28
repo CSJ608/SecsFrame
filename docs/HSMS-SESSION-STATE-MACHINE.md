@@ -11,6 +11,8 @@
 - Select Response 使用等待中的 System Bytes 关联；
 - T6 从 Select Request 的完整线上帧实际写出后开始；
 - T7 从 TCP Session 打开后开始，并在进入 Selected 时取消；
+- Active 运输使用显式 T5 固定连接重试，未完成接收使用显式 T8；两者
+  属于 StreamFrame 运输适配边界，不由会话 actor 重复计时；
 - 本地 Linktest 与 Deselect 命令按 System Bytes 等待响应，T6 从完整
   请求实际写出后开始；
 - 对端 Linktest 被应答；Deselect 成功后回到 Connected 并重新启动 T7；
@@ -79,7 +81,7 @@ System Bytes。旧会话的帧、发送完成和计时器回调不会推进替�
 
 ## 尚未实现
 
-- T5 重连节流和完整 T8 标准语义；
+- 授权标准核对后的 T5/T8 默认值和完整标准语义；
 - 自动周期 Linktest 调度；
 - 公共会话 API、Host/Equipment 能力 API；
 - 与 secs4net 或真实设备的跨实现互操作矩阵。

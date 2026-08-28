@@ -68,13 +68,13 @@ public sealed partial class HsmsSessionStateMachineTests
             IPAddress.Loopback,
             port,
             isActive: false,
-            T6,
+            TcpTransportOptions,
             options);
         var activeTransport = StreamFrameHsmsTransport.Create(
             IPAddress.Loopback,
             port,
             isActive: true,
-            T6,
+            TcpTransportOptions,
             options);
         var passiveSession = new HsmsSessionStateMachine(
             passiveTransport,

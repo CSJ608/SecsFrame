@@ -9,6 +9,9 @@ public sealed partial class HsmsSessionStateMachineTests
 {
     private static readonly TimeSpan T6 = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan T7 = TimeSpan.FromSeconds(10);
+    private static readonly HsmsTransportOptions TcpTransportOptions = new(
+        TimeSpan.FromMilliseconds(10),
+        TimeSpan.FromSeconds(5));
 
     [Fact]
     public async Task Active_session_selects_only_after_matching_response()
@@ -478,13 +481,13 @@ public sealed partial class HsmsSessionStateMachineTests
             IPAddress.Loopback,
             port,
             isActive: false,
-            T6,
+            TcpTransportOptions,
             connectionOptions);
         var activeTransport = StreamFrameHsmsTransport.Create(
             IPAddress.Loopback,
             port,
             isActive: true,
-            T6,
+            TcpTransportOptions,
             connectionOptions);
         await using var passive = new HsmsSessionStateMachine(
             passiveTransport,
