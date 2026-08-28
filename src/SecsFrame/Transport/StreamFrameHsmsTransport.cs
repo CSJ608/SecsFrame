@@ -9,7 +9,7 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
 {
     private readonly IStreamConnection<HsmsTransportFrame> _connection;
     private readonly HsmsTransportSessionContext _sessionContext;
-    private readonly HsmsIncompleteFrameMonitor _incompleteFrameMonitor;
+    private readonly HsmsT8Monitor _t8Monitor;
     private readonly Channel<HsmsTransportEvent> _events;
     private readonly SemaphoreSlim _sendGate = new(1, 1);
 #if NET9_0_OR_GREATER
@@ -28,20 +28,21 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
     internal StreamFrameHsmsTransport(
         IStreamConnection<HsmsTransportFrame> connection,
         HsmsTransportSessionContext sessionContext,
-        TimeSpan incompleteFrameTimeout,
+        HsmsTransportOptions options,
         IHsmsTransportTimerFactory? timerFactory)
     {
         _connection = connection ?? throw new ArgumentNullException(nameof(connection));
         _sessionContext = sessionContext ?? throw new ArgumentNullException(nameof(sessionContext));
+        options = options ?? throw new ArgumentNullException(nameof(options));
         _events = Channel.CreateUnbounded<HsmsTransportEvent>(new UnboundedChannelOptions
         {
             SingleReader = false,
             SingleWriter = false,
             AllowSynchronousContinuations = false,
         });
-        _incompleteFrameMonitor = new HsmsIncompleteFrameMonitor(
-            incompleteFrameTimeout,
-            OnIncompleteFrameTimeout,
+        _t8Monitor = new HsmsT8Monitor(
+            options.T8,
+            OnT8Timeout,
             timerFactory);
 
         _connection.ConnectionChanged += OnConnectionChanged;
@@ -53,22 +54,29 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
         IPAddress ipAddress,
         int port,
         bool isActive,
-        TimeSpan incompleteFrameTimeout,
+        HsmsTransportOptions hsmsOptions,
         StreamConnectionOptions? connectionOptions = null,
         HsmsFramer? framer = null)
     {
+        if (hsmsOptions is null)
+            throw new ArgumentNullException(nameof(hsmsOptions));
+
         var sessionContext = new HsmsTransportSessionContext();
+        var adaptedOptions = HsmsStreamConnectionOptionsAdapter.Create(
+            isActive,
+            hsmsOptions,
+            connectionOptions);
         var connection = new StreamConnection<HsmsTransportFrame>(
             framer ?? new HsmsFramer(),
             new SessionBoundHsmsFrameCodec(sessionContext),
             ipAddress,
             port,
             isActive,
-            connectionOptions);
+            adaptedOptions);
         return new StreamFrameHsmsTransport(
             connection,
             sessionContext,
-            incompleteFrameTimeout,
+            hsmsOptions,
             timerFactory: null);
     }
 
@@ -168,7 +176,7 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
         _connection.ConnectionChanged -= OnConnectionChanged;
         _connection.RawBytesReceived = null;
         _connection.RawBytesSent = null;
-        _incompleteFrameMonitor.Dispose();
+        _t8Monitor.Dispose();
         _events.Writer.TryComplete();
     }
 
@@ -227,7 +235,7 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
     {
         if (state == ConnectionState.Connected)
         {
-            _incompleteFrameMonitor.Reset();
+            _t8Monitor.Reset();
             var sessionId = _sessionContext.Open();
             _events.Writer.TryWrite(HsmsTransportEvent.SessionOpened(sessionId));
             return;
@@ -236,7 +244,7 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
         if (!_sessionContext.TryClose(out var closedSessionId))
             return;
 
-        _incompleteFrameMonitor.Reset();
+        _t8Monitor.Reset();
         var exception = TakeCloseReason();
         FailPending(
             exception ?? new HsmsTransportSessionExpiredException(closedSessionId));
@@ -244,7 +252,7 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
     }
 
     private void OnRawBytesReceived(ReadOnlyMemory<byte> bytes)
-        => _incompleteFrameMonitor.Observe(bytes.Span);
+        => _t8Monitor.Observe(bytes.Span);
 
     private void OnRawBytesSent(ReadOnlyMemory<byte> bytes)
     {
@@ -268,7 +276,7 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
         completed?.Completion.TrySetResult(true);
     }
 
-    private void OnIncompleteFrameTimeout()
+    private void OnT8Timeout()
     {
         if (Volatile.Read(ref _disposed) != 0)
             return;
@@ -279,8 +287,7 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
             {
                 TryCloseSession(
                     sessionId,
-                    new TimeoutException(
-                        "The active HSMS transport session exceeded its incomplete-frame timeout."));
+                    new HsmsT8TimeoutException(sessionId));
             }
         }
         catch (ObjectDisposedException)

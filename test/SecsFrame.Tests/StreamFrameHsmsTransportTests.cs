@@ -7,7 +7,8 @@ namespace SecsFrame.Tests;
 
 public sealed class StreamFrameHsmsTransportTests
 {
-    private static readonly TimeSpan IncompleteFrameTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan T5 = TimeSpan.FromMilliseconds(10);
+    private static readonly TimeSpan T8 = TimeSpan.FromSeconds(5);
 
     [Fact]
     public async Task Sessions_open_and_close_with_monotonic_identifiers()
@@ -141,7 +142,7 @@ public sealed class StreamFrameHsmsTransportTests
     }
 
     [Fact]
-    public async Task Partial_frame_timeout_reconnects_and_reports_close_reason()
+    public async Task T8_timeout_reconnects_and_reports_close_reason()
     {
         var connection = new FakeStreamConnection();
         var timerFactory = new ManualHsmsTransportTimerFactory();
@@ -159,14 +160,50 @@ public sealed class StreamFrameHsmsTransportTests
         connection.ReportReceived(new byte[] { 0x00, 0x00 });
         timerFactory.Timer!.Fire();
         var closed = await NextAsync(events);
-        var sendException = await Assert.ThrowsAsync<TimeoutException>(
+        var sendException = await Assert.ThrowsAsync<HsmsT8TimeoutException>(
             async () => await pendingSend.ConfigureAwait(true)).ConfigureAwait(true);
 
         Assert.Equal(1, connection.ReconnectCount);
         Assert.Equal(HsmsTransportEventKind.SessionClosed, closed.Kind);
         Assert.Equal(sessionId, closed.SessionId);
-        Assert.IsType<TimeoutException>(closed.Error);
+        var timeout = Assert.IsType<HsmsT8TimeoutException>(closed.Error);
+        Assert.Equal(sessionId, timeout.SessionId);
         Assert.Same(closed.Error, sendException);
+        await events.DisposeAsync().ConfigureAwait(true);
+    }
+
+    [Fact]
+    public async Task Queued_T8_callback_from_previous_session_does_not_close_current_session()
+    {
+        var connection = new FakeStreamConnection();
+        var timerFactory = new ManualHsmsTransportTimerFactory();
+        await using var transport = CreateTransport(connection, timerFactory);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var events = transport.GetEventsAsync(cancellation.Token).GetAsyncEnumerator();
+        transport.Start(cancellation.Token);
+        connection.RaiseState(ConnectionState.Connected);
+        await NextAsync(events);
+
+        connection.ReportReceived(new byte[] { 0x00 });
+        var previousSessionTimer = timerFactory.Timer!;
+        connection.RaiseState(ConnectionState.Retry);
+        await NextAsync(events);
+        connection.RaiseState(ConnectionState.Connecting);
+        connection.RaiseState(ConnectionState.Connected);
+        var currentSessionId = (await NextAsync(events)).SessionId;
+        connection.ReportReceived(new byte[] { 0x00, 0x00 });
+        var currentSessionTimer = timerFactory.Timer!;
+
+        previousSessionTimer.ForceFire();
+        Assert.Equal(0, connection.ReconnectCount);
+        Assert.True(currentSessionTimer.IsArmed);
+
+        currentSessionTimer.Fire();
+        var closed = await NextAsync(events);
+        Assert.Equal(1, connection.ReconnectCount);
+        Assert.Equal(currentSessionId, closed.SessionId);
+        var timeout = Assert.IsType<HsmsT8TimeoutException>(closed.Error);
+        Assert.Equal(currentSessionId, timeout.SessionId);
         await events.DisposeAsync().ConfigureAwait(true);
     }
 
@@ -229,7 +266,7 @@ public sealed class StreamFrameHsmsTransportTests
     }
 
     [Fact]
-    public async Task Idle_or_complete_frames_do_not_trigger_incomplete_frame_reconnect()
+    public async Task Idle_or_complete_frames_do_not_arm_T8_or_reconnect()
     {
         var connection = new FakeStreamConnection();
         var timerFactory = new ManualHsmsTransportTimerFactory();
@@ -240,28 +277,28 @@ public sealed class StreamFrameHsmsTransportTests
         connection.RaiseState(ConnectionState.Connected);
         await NextAsync(events);
 
-        timerFactory.Timer!.Fire();
+        Assert.Empty(timerFactory.Timers);
         connection.ReportReceived(
             new byte[]
             {
                 0x00, 0x00, 0x00, 0x0A,
                 0x00, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
             });
-        timerFactory.Timer.Fire();
 
+        Assert.Empty(timerFactory.Timers);
         Assert.Equal(0, connection.ReconnectCount);
         await events.DisposeAsync().ConfigureAwait(true);
     }
 
     [Fact]
-    public async Task Real_streamframe_connection_sends_and_receives_in_the_same_session()
+    public async Task Real_streamframe_connection_sends_and_receives_fragmented_frame()
     {
         var port = GetFreePort();
         await using var transport = StreamFrameHsmsTransport.Create(
             IPAddress.Loopback,
             port,
             isActive: false,
-            IncompleteFrameTimeout,
+            new HsmsTransportOptions(T5, T8),
             new StreamConnectionOptions
             {
                 AcceptRetryDelayMs = 10,
@@ -290,10 +327,23 @@ public sealed class StreamFrameHsmsTransportTests
             },
             sentBytes);
 
-        await client.GetStream().WriteAsync(
+        var stream = client.GetStream();
+        await stream.WriteAsync(
             sentBytes,
             0,
-            sentBytes.Length,
+            2,
+            cancellation.Token);
+        await Task.Delay(TimeSpan.FromMilliseconds(20), cancellation.Token);
+        await stream.WriteAsync(
+            sentBytes,
+            2,
+            3,
+            cancellation.Token);
+        await Task.Delay(TimeSpan.FromMilliseconds(20), cancellation.Token);
+        await stream.WriteAsync(
+            sentBytes,
+            5,
+            sentBytes.Length - 5,
             cancellation.Token);
         var received = await NextAsync(events);
 
@@ -303,13 +353,50 @@ public sealed class StreamFrameHsmsTransportTests
         await events.DisposeAsync().ConfigureAwait(true);
     }
 
+    [Fact]
+    public async Task Real_streamframe_partial_frame_expires_T8_and_closes_session()
+    {
+        var port = GetFreePort();
+        await using var transport = StreamFrameHsmsTransport.Create(
+            IPAddress.Loopback,
+            port,
+            isActive: false,
+            new HsmsTransportOptions(
+                T5,
+                TimeSpan.FromMilliseconds(250)),
+            new StreamConnectionOptions
+            {
+                AcceptRetryDelayMs = 10,
+                ConnectRetryDelayMs = 10,
+            });
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var events = transport.GetEventsAsync(cancellation.Token).GetAsyncEnumerator();
+        transport.Start(cancellation.Token);
+        using var client = new System.Net.Sockets.TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, port);
+        var opened = await NextAsync(events);
+
+        await client.GetStream().WriteAsync(
+            new byte[] { 0x00 },
+            0,
+            1,
+            cancellation.Token);
+        var closed = await NextAsync(events);
+
+        Assert.Equal(HsmsTransportEventKind.SessionClosed, closed.Kind);
+        Assert.Equal(opened.SessionId, closed.SessionId);
+        var timeout = Assert.IsType<HsmsT8TimeoutException>(closed.Error);
+        Assert.Equal(opened.SessionId, timeout.SessionId);
+        await events.DisposeAsync().ConfigureAwait(true);
+    }
+
     private static StreamFrameHsmsTransport CreateTransport(
         FakeStreamConnection connection,
         ManualHsmsTransportTimerFactory timerFactory)
         => new(
             connection,
             new HsmsTransportSessionContext(),
-            IncompleteFrameTimeout,
+            new HsmsTransportOptions(T5, T8),
             timerFactory);
 
     private static int GetFreePort()

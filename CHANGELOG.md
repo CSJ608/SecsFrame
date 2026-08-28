@@ -38,5 +38,9 @@
   畸形 Secondary 处理，以及未匹配数据与解码失败事件。
 - 增加并发事务、嵌套 Item 往返、迟到响应、复合键隔离、一次性回复和
   Active/Passive 双端真实 TCP 数据事务测试。
+- 增加显式 HSMS T5/T8 运输配置；Active 连接把 T5 无损映射为固定
+  StreamFrame 重试间隔并关闭指数退避，Passive 监听重试保持独立。
+- 增加按接收进展与会话代次隔离的 T8 监视、专用超时异常，以及部分长度
+  头、部分 Payload、陈旧回调、替换会话和真实 TCP 超时测试。
 
 [Unreleased]: https://github.com/CSJ608/SecsFrame/compare/main...HEAD
