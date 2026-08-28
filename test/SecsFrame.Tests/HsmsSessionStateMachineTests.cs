@@ -75,6 +75,8 @@ public sealed partial class HsmsSessionStateMachineTests
 
         var t7Error = Assert.IsType<HsmsSessionTimeoutException>(transport.LastCloseError);
         Assert.Equal("T7", t7Error.TimerName);
+        Assert.Equal(HsmsTimer.T7, t7Error.Timer);
+        Assert.Equal(HsmsOperation.Select, t7Error.Operation);
         Assert.Single(timers.Timers);
     }
 

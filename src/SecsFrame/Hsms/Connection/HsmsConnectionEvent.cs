@@ -8,13 +8,15 @@ public sealed class HsmsConnectionEvent
         HsmsSessionState state,
         HsmsIncomingDataMessage? incomingMessage,
         HsmsFrame? frame,
-        Exception? error)
+        Exception? error,
+        HsmsDiagnostic? diagnostic)
     {
         Kind = kind;
         State = state;
         IncomingMessage = incomingMessage;
         Frame = frame;
         Error = error;
+        Diagnostic = diagnostic;
     }
 
     /// <summary>Gets the event kind.</summary>
@@ -32,6 +34,9 @@ public sealed class HsmsConnectionEvent
     /// <summary>Gets the state or decoding error, when applicable.</summary>
     public Exception? Error { get; }
 
+    /// <summary>Gets structured failure context, when this event reports a diagnostic.</summary>
+    public HsmsDiagnostic? Diagnostic { get; }
+
     internal static HsmsConnectionEvent StateChanged(
         HsmsSessionState state,
         Exception? error)
@@ -40,7 +45,8 @@ public sealed class HsmsConnectionEvent
             state,
             null,
             null,
-            error);
+            error,
+            error is null ? null : HsmsDiagnostic.Classify(error, state));
 
     internal static HsmsConnectionEvent DataMessageReceived(
         HsmsIncomingDataMessage incomingMessage)
@@ -48,6 +54,7 @@ public sealed class HsmsConnectionEvent
             HsmsConnectionEventKind.DataMessageReceived,
             HsmsSessionState.Selected,
             incomingMessage,
+            null,
             null,
             null);
 
@@ -59,6 +66,7 @@ public sealed class HsmsConnectionEvent
             state,
             null,
             frame,
+            null,
             null);
 
     internal static HsmsConnectionEvent DataMessageDecodeFailed(
@@ -69,5 +77,6 @@ public sealed class HsmsConnectionEvent
             HsmsSessionState.Selected,
             null,
             frame,
-            error);
+            error,
+            HsmsDiagnostic.DataMessageDecodeFailed(frame, error));
 }
