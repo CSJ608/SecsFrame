@@ -25,6 +25,9 @@ public sealed class GemMessageProfileTests
         Assert.Equal(new GemMessagePair(2, 13, 14), profile.ReadEquipmentConstants);
         Assert.Equal(new GemMessagePair(2, 17, 18), profile.GetClock);
         Assert.Equal(new GemMessagePair(2, 31, 32), profile.SetClock);
+        Assert.Equal(new GemMessagePair(2, 33, 34), profile.DefineReports);
+        Assert.Equal(new GemMessagePair(2, 35, 36), profile.LinkEventReports);
+        Assert.Equal(new GemMessagePair(6, 11, 12), profile.CollectionEvent);
         Assert.Equal((byte)0, profile.AcceptedAcknowledgement);
         Assert.Equal((byte)1, profile.FailedAcknowledgement);
         Assert.Equal("2026082801101112", profile.ClockCodec.Encode(value));
@@ -40,6 +43,9 @@ public sealed class GemMessageProfileTests
         Assert.Throws<ArgumentException>(() => CreateProfile(
             baseline,
             areYouOnline: baseline.EstablishCommunication));
+        Assert.Throws<ArgumentException>(() => CreateProfile(
+            baseline,
+            collectionEvent: baseline.EstablishCommunication));
         Assert.Throws<ArgumentException>(() => CreateProfile(
             baseline,
             failedAcknowledgement: baseline.AcceptedAcknowledgement));
@@ -58,11 +64,26 @@ public sealed class GemMessageProfileTests
         Assert.Throws<ArgumentException>(() => new GemIdentity("设备", "1.0"));
         Assert.Throws<FormatException>(() =>
             GemMessageProfile.CreateEngineeringBaseline().ClockCodec.Decode("bad"));
+        var valueIds = new[] { SecsItem.U4(1) };
+        var definition = new GemReportDefinition(SecsItem.U4(2), valueIds);
+        valueIds[0] = SecsItem.U4(3);
+        Assert.Equal(SecsItem.U4(1), Assert.Single(definition.ValueIds));
+        Assert.Throws<ArgumentNullException>(() =>
+            new GemReportDefinition(null!, Array.Empty<SecsItem>()));
+        Assert.Throws<ArgumentException>(() =>
+            new GemEventReportLink(
+                SecsItem.U4(1),
+                new SecsItem[] { null! }));
+        Assert.Throws<ArgumentException>(() =>
+            new GemEventReportLink(
+                SecsItem.U4(1),
+                new[] { SecsItem.U4(2), SecsItem.U4(2) }));
     }
 
     private static GemMessageProfile CreateProfile(
         GemMessageProfile baseline,
         GemMessagePair? areYouOnline = null,
+        GemMessagePair? collectionEvent = null,
         byte? failedAcknowledgement = null,
         GemClockCodec? clockCodec = default,
         bool useNullClockCodec = false)
@@ -75,6 +96,9 @@ public sealed class GemMessageProfileTests
             baseline.ReadEquipmentConstants,
             baseline.GetClock,
             baseline.SetClock,
+            baseline.DefineReports,
+            baseline.LinkEventReports,
+            collectionEvent ?? baseline.CollectionEvent,
             baseline.AcceptedAcknowledgement,
             failedAcknowledgement ?? baseline.FailedAcknowledgement,
             useNullClockCodec ? null! : clockCodec ?? baseline.ClockCodec);

@@ -4,6 +4,13 @@ namespace SecsFrame.Gem;
 public sealed class GemHostServices : IDisposable
 {
     private readonly GemEndpointServices _services;
+#if NET9_0_OR_GREATER
+    private readonly Lock _gate = new();
+#else
+    private readonly object _gate = new();
+#endif
+    private GemCollectionEventRegistration? _collectionEventHandler;
+    private int _disposed;
 
     /// <summary>Creates Host GEM services without taking ownership of the endpoint.</summary>
     public GemHostServices(
@@ -18,6 +25,17 @@ public sealed class GemHostServices : IDisposable
             host,
             identity,
             profile ?? GemMessageProfile.CreateEngineeringBaseline());
+        try
+        {
+            _services.AddRoute(
+                _services.Profile.CollectionEvent,
+                HandleCollectionEventAsync);
+        }
+        catch
+        {
+            _services.Dispose();
+            throw;
+        }
     }
 
     /// <summary>Gets the local identity advertised to the Equipment.</summary>
@@ -113,6 +131,66 @@ public sealed class GemHostServices : IDisposable
                 "clock-set reply"));
     }
 
+    /// <summary>Atomically replaces the Equipment report-definition set.</summary>
+    public async Task DefineReportsAsync(
+        SecsItem dataId,
+        IEnumerable<GemReportDefinition> reports,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await _services.SendRequestAsync(
+            Profile.DefineReports,
+            GemOperation.DefineReports,
+            GemMessageCodec.EncodeReportDefinitions(dataId, reports),
+            cancellationToken).ConfigureAwait(false);
+        _services.RequireAccepted(
+            GemOperation.DefineReports,
+            GemMessageCodec.DecodeAcknowledgement(
+                response.Message.RootItem,
+                "report-definition reply"));
+    }
+
+    /// <summary>Atomically replaces the Equipment event-to-report link set.</summary>
+    public async Task LinkEventReportsAsync(
+        SecsItem dataId,
+        IEnumerable<GemEventReportLink> links,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await _services.SendRequestAsync(
+            Profile.LinkEventReports,
+            GemOperation.LinkEventReports,
+            GemMessageCodec.EncodeEventReportLinks(dataId, links),
+            cancellationToken).ConfigureAwait(false);
+        _services.RequireAccepted(
+            GemOperation.LinkEventReports,
+            GemMessageCodec.DecodeAcknowledgement(
+                response.Message.RootItem,
+                "event-report-link reply"));
+    }
+
+    /// <summary>Registers the single application Collection Event handler.</summary>
+    public GemCollectionEventRegistration RegisterCollectionEventHandler(
+        GemCollectionEventHandler handler)
+    {
+        if (handler is null)
+            throw new ArgumentNullException(nameof(handler));
+
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            if (_collectionEventHandler is not null)
+            {
+                throw new InvalidOperationException(
+                    "A Collection Event handler is already registered.");
+            }
+
+            var registration = new GemCollectionEventRegistration(
+                handler,
+                UnregisterCollectionEventHandler);
+            _collectionEventHandler = registration;
+            return registration;
+        }
+    }
+
     /// <summary>
     /// Observes session state and dispatches a registered GEM or application route.
     /// </summary>
@@ -123,7 +201,14 @@ public sealed class GemHostServices : IDisposable
 
     /// <summary>Removes the GEM Primary routes without disposing the endpoint.</summary>
     public void Dispose()
-        => _services.Dispose();
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            return;
+
+        lock (_gate)
+            _collectionEventHandler = null;
+        _services.Dispose();
+    }
 
     private async Task<IReadOnlyList<SecsItem>> ReadValuesAsync(
         GemMessagePair pair,
@@ -139,5 +224,43 @@ public sealed class GemHostServices : IDisposable
         return GemMessageCodec.DecodeList(
             response.Message.RootItem,
             $"{operation} reply");
+    }
+
+    private async ValueTask<SecsMessage?> HandleCollectionEventAsync(
+        HsmsPrimaryContext context,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        GemMessageCodec.RequireReplyExpected(context, "Collection Event");
+        var collectionEvent = GemMessageCodec.DecodeCollectionEvent(
+            context.Message.RootItem);
+        GemCollectionEventHandler? handler;
+        lock (_gate)
+            handler = _collectionEventHandler?.Handler;
+
+        var accepted = handler is not null &&
+            await handler(collectionEvent, cancellationToken).ConfigureAwait(false);
+        return GemEndpointServices.CreateSecondary(
+            Profile.CollectionEvent,
+            GemMessageCodec.EncodeAcknowledgement(
+                accepted
+                    ? Profile.AcceptedAcknowledgement
+                    : Profile.FailedAcknowledgement));
+    }
+
+    private void UnregisterCollectionEventHandler(
+        GemCollectionEventRegistration registration)
+    {
+        lock (_gate)
+        {
+            if (ReferenceEquals(_collectionEventHandler, registration))
+                _collectionEventHandler = null;
+        }
+    }
+
+    private void ThrowIfDisposed()
+    {
+        if (Volatile.Read(ref _disposed) != 0)
+            throw new ObjectDisposedException(nameof(GemHostServices));
     }
 }

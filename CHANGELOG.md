@@ -73,5 +73,13 @@
   严格校验 W-Bit、消息体、Secondary、应答值、未知标识与时钟输入。
 - 增加 Host Active/Equipment Passive 的 GEM 真实 TCP 垂直测试，覆盖双向
   通讯建立、动态嵌套值、时钟读写、拒绝应答和 Linktest。
+- 增加可替换的报告定义、事件链接和 Collection Event 消息对，Host 可
+  原子替换完整配置，Equipment 可按运行期状态变量快照采集并发送报告。
+- 增加不可变动态报告/事件模型和可释放的 Host Collection Event 处理器；
+  无处理器或应用拒绝返回显式失败应答。
+- 报告配置严格拒绝畸形 Item、重复标识、未知变量和未知报告，成功配置在
+  应答写出前原子可见，替换报告集会移除引用已删除报告的旧事件链接。
+- 增加定义、链接、S6F11 动态 Item 向量和真实 TCP 垂直测试，覆盖嵌套值、
+  空报告、配置拒绝、触发前快照与 Host 拒绝。
 
 [Unreleased]: https://github.com/CSJ608/SecsFrame/compare/main...HEAD

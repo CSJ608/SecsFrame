@@ -37,6 +37,33 @@ public sealed class GemEquipmentServicesTests
         await Assert.ThrowsAsync<GemProtocolException>(() => DispatchAsync(
             services,
             new SecsMessage(1, 17))).ConfigureAwait(true);
+        await Assert.ThrowsAsync<GemProtocolException>(() => DispatchAsync(
+            services,
+            new SecsMessage(2, 33, true, SecsItem.List()))).ConfigureAwait(true);
+        await Assert.ThrowsAsync<GemProtocolException>(() => DispatchAsync(
+            services,
+            new SecsMessage(
+                2,
+                33,
+                true,
+                SecsItem.List(
+                    SecsItem.U4(1),
+                    SecsItem.List(
+                        SecsItem.List(SecsItem.U4(2), SecsItem.List()),
+                        SecsItem.List(SecsItem.U4(2), SecsItem.List()))))))
+            .ConfigureAwait(true);
+        await Assert.ThrowsAsync<GemProtocolException>(() => DispatchAsync(
+            services,
+            new SecsMessage(
+                2,
+                35,
+                true,
+                SecsItem.List(
+                    SecsItem.U4(1),
+                    SecsItem.List(
+                        SecsItem.List(SecsItem.U4(3), SecsItem.List()),
+                        SecsItem.List(SecsItem.U4(3), SecsItem.List()))))))
+            .ConfigureAwait(true);
 
         Assert.Equal(GemOnlineState.Offline, services.OnlineState);
     }
@@ -65,6 +92,33 @@ public sealed class GemEquipmentServicesTests
         services.Dispose();
         Assert.Throws<ObjectDisposedException>(() =>
             services.RegisterStatusVariable(SecsItem.U4(1002), provider));
+    }
+
+    [Fact]
+    public async Task Event_link_rejects_duplicate_report_identifiers()
+    {
+        await using var endpoint = new SecsEquipment(
+            CreateOptions(GetFreePort(), HsmsConnectionMode.Active));
+        using var services = new GemEquipmentServices(
+            endpoint,
+            new GemIdentity("EQ-01", "1.0"),
+            new TestGemClock(Epoch));
+
+        await Assert.ThrowsAsync<GemProtocolException>(() => DispatchAsync(
+            services,
+            new SecsMessage(
+                2,
+                35,
+                true,
+                SecsItem.List(
+                    SecsItem.U4(1),
+                    SecsItem.List(
+                        SecsItem.List(
+                            SecsItem.U4(3),
+                            SecsItem.List(
+                                SecsItem.U4(2),
+                                SecsItem.U4(2))))))))
+            .ConfigureAwait(true);
     }
 
     private static Task<bool> DispatchAsync(

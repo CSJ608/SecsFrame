@@ -13,6 +13,7 @@ public sealed class GemFoundationTcpTests
 
         await AssertCommunicationAndOnlineAsync(context).ConfigureAwait(true);
         await AssertDynamicDataAsync(context).ConfigureAwait(true);
+        await AssertCollectionEventsAsync(context).ConfigureAwait(true);
         await AssertClockAsync(context).ConfigureAwait(true);
         Assert.Equal(
             context.HostServices.Identity,
@@ -76,6 +77,144 @@ public sealed class GemFoundationTcpTests
         Assert.Equal(
             SecsItem.List(SecsItem.U4(10), SecsItem.Boolean(true)),
             Assert.Single(constants));
+    }
+
+    private static async Task AssertCollectionEventsAsync(GemTcpContext context)
+    {
+        var dataId = SecsItem.U4(9001);
+        var eventId = SecsItem.U4(7001);
+        var reportId = SecsItem.U4(5001);
+        var emptyReportId = SecsItem.Ascii("EMPTY");
+        await AssertRejectedReportDefinitionAsync(context, dataId, reportId)
+            .ConfigureAwait(true);
+        await ConfigureCollectionEventAsync(
+            context,
+            dataId,
+            eventId,
+            reportId,
+            emptyReportId).ConfigureAwait(true);
+        var received = new TaskCompletionSource<GemCollectionEvent>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using (context.HostServices.RegisterCollectionEventHandler(
+            (collectionEvent, cancellationToken) =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                received.TrySetResult(collectionEvent);
+                return new ValueTask<bool>(true);
+            }))
+        {
+            await context.EquipmentServices.SendCollectionEventAsync(
+                SecsItem.U4(9002),
+                eventId,
+                context.Token).ConfigureAwait(true);
+        }
+
+        AssertCollectionEvent(
+            await received.Task.ConfigureAwait(true),
+            eventId,
+            reportId,
+            emptyReportId);
+        var rejectedEvent = await Assert.ThrowsAsync<GemRequestRejectedException>(
+            () => context.EquipmentServices.SendCollectionEventAsync(
+                SecsItem.U4(9003),
+                eventId,
+                context.Token)).ConfigureAwait(true);
+        Assert.Equal(GemOperation.CollectionEvent, rejectedEvent.Operation);
+        Assert.Equal((byte)1, rejectedEvent.Acknowledgement);
+    }
+
+    private static async Task AssertRejectedReportDefinitionAsync(
+        GemTcpContext context,
+        SecsItem dataId,
+        SecsItem reportId)
+    {
+        var rejectedDefinition = await Assert.ThrowsAsync<GemRequestRejectedException>(
+            () => context.HostServices.DefineReportsAsync(
+                dataId,
+                new[]
+                {
+                    new GemReportDefinition(
+                        reportId,
+                        new[] { SecsItem.U4(404) }),
+                },
+                context.Token)).ConfigureAwait(true);
+        Assert.Equal(GemOperation.DefineReports, rejectedDefinition.Operation);
+    }
+
+    private static async Task ConfigureCollectionEventAsync(
+        GemTcpContext context,
+        SecsItem dataId,
+        SecsItem eventId,
+        SecsItem reportId,
+        SecsItem emptyReportId)
+    {
+        await context.HostServices.DefineReportsAsync(
+            dataId,
+            new[]
+            {
+                new GemReportDefinition(
+                    reportId,
+                    new[]
+                    {
+                        SecsItem.Ascii("TEMP"),
+                        SecsItem.U4(1001),
+                        SecsItem.U4(1002),
+                    }),
+                new GemReportDefinition(
+                    emptyReportId,
+                    Array.Empty<SecsItem>()),
+            },
+            context.Token).ConfigureAwait(true);
+        var rejectedLink = await Assert.ThrowsAsync<GemRequestRejectedException>(
+            () => context.HostServices.LinkEventReportsAsync(
+                dataId,
+                new[]
+                {
+                    new GemEventReportLink(
+                        eventId,
+                        new[] { SecsItem.U4(404) }),
+                },
+                context.Token)).ConfigureAwait(true);
+        Assert.Equal(GemOperation.LinkEventReports, rejectedLink.Operation);
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => context.EquipmentServices.SendCollectionEventAsync(
+                dataId,
+                eventId,
+                context.Token)).ConfigureAwait(true);
+
+        await context.HostServices.LinkEventReportsAsync(
+            dataId,
+            new[]
+            {
+                new GemEventReportLink(
+                    eventId,
+                    new[] { reportId, emptyReportId }),
+            },
+            context.Token).ConfigureAwait(true);
+    }
+
+    private static void AssertCollectionEvent(
+        GemCollectionEvent collectionEvent,
+        SecsItem eventId,
+        SecsItem reportId,
+        SecsItem emptyReportId)
+    {
+        Assert.Equal(SecsItem.U4(9002), collectionEvent.DataId);
+        Assert.Equal(eventId, collectionEvent.EventId);
+        Assert.Equal(2, collectionEvent.Reports.Count);
+        Assert.Equal(reportId, collectionEvent.Reports[0].ReportId);
+        Assert.Equal(
+            new[]
+            {
+                SecsItem.F8(23.5),
+                SecsItem.Ascii("READY"),
+                SecsItem.List(
+                    SecsItem.U4(10),
+                    SecsItem.Boolean(true)),
+            },
+            collectionEvent.Reports[0].Values);
+        Assert.Equal(emptyReportId, collectionEvent.Reports[1].ReportId);
+        Assert.Empty(collectionEvent.Reports[1].Values);
     }
 
     private static async Task AssertClockAsync(GemTcpContext context)
@@ -169,6 +308,7 @@ public sealed class GemFoundationTcpTests
             new(TimeSpan.FromSeconds(20));
         private readonly GemValueRegistration _variable1;
         private readonly GemValueRegistration _variable2;
+        private readonly GemValueRegistration _variable3;
         private readonly GemValueRegistration _constant;
         private Task _hostPump = Task.CompletedTask;
         private Task _equipmentPump = Task.CompletedTask;
@@ -201,6 +341,12 @@ public sealed class GemFoundationTcpTests
             _variable2 = EquipmentServices.RegisterStatusVariable(
                 SecsItem.Ascii("TEMP"),
                 static _ => new ValueTask<SecsItem>(SecsItem.F8(23.5)));
+            _variable3 = EquipmentServices.RegisterStatusVariable(
+                SecsItem.U4(1002),
+                static _ => new ValueTask<SecsItem>(
+                    SecsItem.List(
+                        SecsItem.U4(10),
+                        SecsItem.Boolean(true))));
             _constant = EquipmentServices.RegisterEquipmentConstant(
                 SecsItem.U2(2001),
                 static _ => new ValueTask<SecsItem>(
@@ -240,6 +386,7 @@ public sealed class GemFoundationTcpTests
             _lifetime.Cancel();
             await Task.WhenAll(_hostPump, _equipmentPump).ConfigureAwait(false);
             _constant.Dispose();
+            _variable3.Dispose();
             _variable2.Dispose();
             _variable1.Dispose();
             EquipmentServices.Dispose();

@@ -3,8 +3,9 @@
 ## 模块与范围
 
 <code>SecsFrame.Gem</code> 是只依赖 <code>SecsFrame</code> 的独立程序集。
-本切片提供 Host/Equipment 两侧的通讯建立、在线/离线、状态变量读取、
-设备常量读取和应用托管时钟，不把 GEM 状态或消息目录放入 HSMS 状态机。
+当前切片提供 Host/Equipment 两侧的通讯建立、在线/离线、状态变量读取、
+设备常量读取、应用托管时钟、报告定义、事件链接和 Collection Event，
+不把 GEM 状态或消息目录放入 HSMS 状态机。
 
 <code>GemHostServices</code> 依赖 <code>SecsHost</code>；
 <code>GemEquipmentServices</code> 依赖 <code>SecsEquipment</code>。服务不拥有
@@ -26,10 +27,13 @@
 | 设备常量读取 | S2F13 | S2F14 |
 | 时钟读取 | S2F17 | S2F18 |
 | 时钟设置 | S2F31 | S2F32 |
+| 报告定义 | S2F33 | S2F34 |
+| 事件链接 | S2F35 | S2F36 |
+| Collection Event | S6F11 | S6F12 |
 
 这张表描述仓库自己的默认配置，不是复制的 SEMI 规范表，也不表示已经
-核对 E30 的必选能力、状态条件、数据项定义或应答枚举。默认成功应答为
-Binary 0，失败应答为 Binary 1；时钟使用 UTC 的
+核对 E30 的必选能力、状态条件、数据项定义、报告生命周期或应答枚举。
+默认成功应答为 Binary 0，失败应答为 Binary 1；时钟使用 UTC 的
 <code>yyyyMMddHHmmssff</code> ASCII 工程格式。现场差异应使用独立 profile
 和 codec，不应修改严格基线或根据 Function 奇偶推断消息含义。
 
@@ -68,6 +72,32 @@ Equipment 可按任意不可变 <code>SecsItem</code> 标识符运行期注册�
 应用可以拒绝设置请求，Host 会收到包含操作和原始应答字节的
 <code>GemRequestRejectedException</code>。
 
+## 报告与 Collection Event
+
+Host 使用 <code>DefineReportsAsync</code> 和
+<code>LinkEventReportsAsync</code> 下发完整配置集。报告由动态 RPTID 和
+有序状态变量标识组成；事件链接由动态 CEID 和有序 RPTID 组成。标识继续
+使用不可变 <code>SecsItem</code>，不要求预生成消息或事件目录。
+
+当前工程语义是完整集替换：
+
+- 空报告集清除全部报告；替换报告集同时移除引用已删除报告的旧事件链接；
+- 空链接集清除全部链接；空 RPTID 列表保留一个不携带报告的事件；
+- 报告只引用当前已注册的状态变量，链接只引用当前已定义的报告；
+- 未知变量或报告返回失败应答且不提交；畸形或重复标识作为协议异常上报；
+- 校验成功的配置在发送成功应答前于 Equipment 锁内原子提交，因此 Host
+  收到成功应答时配置已经可见。
+
+<code>SendCollectionEventAsync</code> 先在锁内快照事件链接、报告定义和
+状态变量提供器，再在锁外按链接/定义顺序异步采值。并发替换配置或释放
+注册不会改变正在生成的这一条事件；提供器仍可能按应用取消或失败。值保持
+任意动态 Item，包括嵌套 List 和空报告。
+
+Host 使用 <code>RegisterCollectionEventHandler</code> 注册单一可释放处理器。
+处理器返回 <code>true</code> 发送成功应答，返回 <code>false</code> 发送失败
+应答；没有处理器时明确失败。释放注册只影响后续事件，已经取得处理器快照
+的分派会完成。应用处理器异常和取消继续传播给事件循环，不被库隐藏。
+
 ## 严格失败边界
 
 当前实现严格要求：
@@ -77,20 +107,27 @@ Equipment 可按任意不可变 <code>SecsItem</code> 标识符运行期注册�
 - Secondary 的 Stream、Function 和 W-Bit 与配置完全匹配；
 - 应答是单个 Binary 字节，接受的通讯建立应答包含两项 ASCII Identity；
 - 状态变量和设备常量请求只引用已注册标识，提供器不得返回 null；
-- 时钟字符串由显式 codec 完整解析。
+- 时钟字符串由显式 codec 完整解析；
+- 报告/链接请求是二元素 List，Collection Event 是三元素 List，各嵌套项
+  的标识和值列表形状必须完整且标识不能产生歧义；
+- 报告配置请求和 Collection Event 必须设置 W-Bit，Secondary 的消息对和
+  应答字节必须与 profile 匹配。
 
-畸形输入、未知标识和提供器失败会作为异常返回应用事件循环。本切片尚未
-实现自动 S9Fx、错误 Secondary、通讯建立策略拒绝、状态切换策略或完整
-GEM 错误恢复，这些行为不能从当前 API 推断为标准合规。
+畸形输入和提供器失败会作为异常返回应用事件循环；语义有效但引用未知变量
+或报告的配置使用失败应答拒绝。本切片尚未实现自动 S9Fx、错误 Secondary、
+通讯建立策略拒绝、状态切换策略、报警、远程命令或完整 GEM 错误恢复，
+这些行为不能从当前 API 推断为标准合规。
 
 ## 标准与验证边界
 
 公开 SEMI 目录当前标识 GEM 基线为 E30-0526。仍需使用团队合法获得的
 副本核对消息条件、COMMACK/ONLACK/OFLACK/TIACK 语义、MDLN 条件结构、
-空 SVID/ECID 列表行为、时间格式选择、状态转换和错误响应。不得把标准
-正文、消息表、状态图或 Schema 提交仓库。完整版本和版权边界见
+空 SVID/ECID 列表行为、报告定义与链接生命周期、Collection Event 数据
+结构和应答、时间格式选择、状态转换和错误响应。不得把标准正文、消息表、
+状态图或 Schema 提交仓库。完整版本和版权边界见
 [STANDARDS.md](STANDARDS.md)。
 
 当前证据包括三目标框架的严格输入测试，以及 Host Active / Equipment
-Passive 真实 TCP 下的双向通讯建立、上下线、异构动态标识、嵌套值、时钟
-读写、拒绝应答和 Linktest。它们是独立工程验证，不是 SEMI 一致性认证。
+Passive 真实 TCP 下的双向通讯建立、上下线、异构动态标识、报告定义、
+事件链接、Collection Event 嵌套值与空报告、配置/事件拒绝、时钟读写和
+Linktest。它们是独立工程验证，不是 SEMI 一致性认证。

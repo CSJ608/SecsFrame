@@ -22,6 +22,9 @@ public sealed class GemMessageProfile
         GemMessagePair readEquipmentConstants,
         GemMessagePair getClock,
         GemMessagePair setClock,
+        GemMessagePair defineReports,
+        GemMessagePair linkEventReports,
+        GemMessagePair collectionEvent,
         byte acceptedAcknowledgement,
         byte failedAcknowledgement,
         GemClockCodec clockCodec)
@@ -41,7 +44,10 @@ public sealed class GemMessageProfile
             readStatusVariables,
             readEquipmentConstants,
             getClock,
-            setClock);
+            setClock,
+            defineReports,
+            linkEventReports,
+            collectionEvent);
         EstablishCommunication = establishCommunication;
         AreYouOnline = areYouOnline;
         RequestOnline = requestOnline;
@@ -50,6 +56,9 @@ public sealed class GemMessageProfile
         ReadEquipmentConstants = readEquipmentConstants;
         GetClock = getClock;
         SetClock = setClock;
+        DefineReports = defineReports;
+        LinkEventReports = linkEventReports;
+        CollectionEvent = collectionEvent;
         AcceptedAcknowledgement = acceptedAcknowledgement;
         FailedAcknowledgement = failedAcknowledgement;
         ClockCodec = clockCodec ?? throw new ArgumentNullException(nameof(clockCodec));
@@ -79,6 +88,15 @@ public sealed class GemMessageProfile
     /// <summary>Gets the clock-set message pair.</summary>
     public GemMessagePair SetClock { get; }
 
+    /// <summary>Gets the report-definition message pair.</summary>
+    public GemMessagePair DefineReports { get; }
+
+    /// <summary>Gets the event-to-report linking message pair.</summary>
+    public GemMessagePair LinkEventReports { get; }
+
+    /// <summary>Gets the Collection Event message pair.</summary>
+    public GemMessagePair CollectionEvent { get; }
+
     /// <summary>Gets the configured successful acknowledgement byte.</summary>
     public byte AcceptedAcknowledgement { get; }
 
@@ -101,6 +119,9 @@ public sealed class GemMessageProfile
             new GemMessagePair(2, 13, 14),
             new GemMessagePair(2, 17, 18),
             new GemMessagePair(2, 31, 32),
+            new GemMessagePair(2, 33, 34),
+            new GemMessagePair(2, 35, 36),
+            new GemMessagePair(6, 11, 12),
             acceptedAcknowledgement: 0,
             failedAcknowledgement: 1,
             new GemClockCodec(EncodeBaselineTime, DecodeBaselineTime));
