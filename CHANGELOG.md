@@ -29,5 +29,14 @@
   PType、Transaction Not Open 和 Entity Not Selected 的严格生成路径。
 - 增加未被会话层消费的 Reject 事件转发、非法控制字段、控制事务中断和
   Active/Passive 真实 TCP 控制平面测试。
+- 增加 Selected 门控的数据发送命令，发送任务仅在完整线上帧实际写出后
+  完成，会话替换时不会重放。
+- 增加内部 HSMS 数据事务 actor，为 W-Bit Primary 分配 System Bytes，
+  使用 transport session、HSMS Session ID 与 System Bytes 关联
+  Secondary，并从实际写出后启动独立 T3。
+- 增加入站同事务回复、无 W-Bit 写出完成、Reject/Deselect/断线/取消/
+  畸形 Secondary 处理，以及未匹配数据与解码失败事件。
+- 增加并发事务、嵌套 Item 往返、迟到响应、复合键隔离、一次性回复和
+  Active/Passive 双端真实 TCP 数据事务测试。
 
 [Unreleased]: https://github.com/CSJ608/SecsFrame/compare/main...HEAD

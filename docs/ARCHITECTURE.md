@@ -97,7 +97,26 @@ Selected 转发数据消息；提前到达的数据、可识别的不支持类�
 本地主动控制事务；Linktest/Deselect 的 T6 同样从实际写出后开始，响应
 必须匹配类型与 System Bytes。Deselect 成功回到 Connected 并重启 T7。
 无法由会话层认领的 Reject 作为 <code>ControlMessageReceived</code>
-事件向上转发，供后续 T3 数据事务管理器关联，不会被静默丢弃。
+事件向上转发，供数据事务 actor 关联，不会被静默丢弃。
+
+### 会话绑定的数据事务
+
+内部 <code>HsmsDataTransactionManager</code> 独占消费会话事件，并把
+发送请求、写出完成、接收数据、T3 回调、取消和状态变化串行化。数据发送
+仍回到会话 actor 做 Selected 与当前 transport session 校验，事务层不会
+绕过 <code>IHsmsTransport</code>。
+
+有 W-Bit 的出站 Primary 在登记关联键后发送，只在整帧实际写出后启动
+独立 T3。Secondary 必须不带 W-Bit，并同时匹配 transport Session ID、
+HSMS 头 Session ID 与 System Bytes。没有 W-Bit 的出站消息在写出后
+直接完成。Reject、Deselect、断线和替换会话都会结束对应等待，T3 单独
+到期不关闭 Selected 会话。
+
+没有匹配打开事务的合法数据继续上报，而不是依赖 Function 奇偶或硬编码
+消息目录猜测角色。带 W-Bit 的入站消息可以使用绑定原 transport session
+的信封回复一次，回复复制协议 Session ID 与 System Bytes。具体失效语义
+和测试边界见
+[HSMS-DATA-TRANSACTIONS.md](HSMS-DATA-TRANSACTIONS.md)。
 
 ### 严格与兼容分离
 

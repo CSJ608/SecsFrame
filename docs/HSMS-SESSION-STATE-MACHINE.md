@@ -16,7 +16,9 @@
 - 对端 Linktest 被应答；Deselect 成功后回到 Connected 并重新启动 T7；
 - 对可安全回应的无效消息生成 Reject Request；
 - 本地和远端 Separate 都终止当前协议会话；
-- 只有 Selected 状态的数据消息才向上游事件流转发。
+- 只有 Selected 状态的数据消息才向上游事件流转发；
+- 本地数据发送同样进入 actor 做 Selected 与当前 Session ID 校验，任务
+  在 <code>IHsmsTransport</code> 确认完整写出后完成。
 
 连接主动/被动模式不表示 Host/Equipment 业务角色。状态机没有
 Host/Equipment 分支，后续角色 API 可以独立组合。
@@ -27,7 +29,8 @@ Host/Equipment 分支，后续角色 API 可以独立组合。
 异步 Socket 发送不阻塞状态机，但发送结果会带回原 Session ID、用途和
 System Bytes。旧会话的帧、发送完成和计时器回调不会推进替换会话。
 本地主动 Linktest、Deselect 和 Separate 命令单飞，避免共享 T6 被并发
-命令覆盖。
+命令覆盖。数据发送可以并发等待底层串行写出，但每次写入仍绑定接受命令
+时的 transport Session ID；会话关闭立即结束等待且不会在替换会话重放。
 
 所有协议主动关闭都调用 <code>IHsmsTransport.TryCloseSession</code>，
 只有 Session ID 仍匹配当前 TCP 连接时才执行。关闭原因随后通过
@@ -65,16 +68,18 @@ System Bytes。旧会话的帧、发送完成和计时器回调不会推进替�
 - Selected 前拒绝数据、Selected 后转发数据；
 - Linktest/Deselect 的写出确认、T6、响应匹配、拒绝和并发互斥；
 - Reject 黄金向量、四类生成路径、未消费 Reject 转发；
-- 非法控制头、本地及远端 Separate。
+- 非法控制头、本地及远端 Separate；
+- Selected 数据发送门控、完整写出确认、会话关闭和替换会话不重放。
 
 另有真实 TCP 回环测试，让 Active 与 Passive
 <code>StreamFrameHsmsTransport</code> 完成 Select、Linktest 和 Deselect
-流程。测试证明当前实现路径可互操作，不替代认证工具或第三方设备互操作
-证据。
+流程；其上的事务回环还完成带嵌套 Item 的 Primary/Secondary 往返。数据
+事务细节见 [HSMS-DATA-TRANSACTIONS.md](HSMS-DATA-TRANSACTIONS.md)。
+测试证明当前实现路径可互操作，不替代认证工具或第三方设备互操作证据。
 
 ## 尚未实现
 
-- T3 数据事务、T5 重连节流和完整 T8 标准语义；
+- T5 重连节流和完整 T8 标准语义；
 - 自动周期 Linktest 调度；
 - 公共会话 API、Host/Equipment 能力 API；
 - 与 secs4net 或真实设备的跨实现互操作矩阵。

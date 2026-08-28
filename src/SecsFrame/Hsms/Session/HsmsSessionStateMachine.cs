@@ -12,6 +12,7 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
     private readonly IHsmsSystemBytesProvider _systemBytesProvider;
     private readonly Channel<MachineInput> _inputs;
     private readonly Channel<HsmsSessionEvent> _events;
+    private readonly HashSet<PendingDataSend> _pendingDataSends = new();
     private CancellationTokenSource? _lifetime;
     private Task? _transportPump;
     private Task? _processor;
@@ -95,6 +96,43 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
     public Task DeselectAsync(CancellationToken cancellationToken = default)
         => RequestCommandAsync(MachineInputKind.DeselectRequested, cancellationToken);
 
+    public Task SendDataAsync(
+        HsmsFrame frame,
+        CancellationToken cancellationToken = default)
+    {
+        if (frame is null)
+            throw new ArgumentNullException(nameof(frame));
+        if (!frame.Header.IsDataMessage)
+        {
+            throw new ArgumentException(
+                "Only an HSMS data message can be sent through the data send path.",
+                nameof(frame));
+        }
+
+        if (frame.Header.PresentationType != 0)
+        {
+            throw new HsmsProtocolException(
+                "SECS-II over HSMS requires a data message with PType 0.");
+        }
+
+        ThrowIfDisposed();
+        if (Volatile.Read(ref _started) == 0)
+            throw new InvalidOperationException("The HSMS session state machine has not been started.");
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var completion = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!_inputs.Writer.TryWrite(
+            MachineInput.DataSendRequested(
+                new PendingDataSend(frame, completion),
+                cancellationToken)))
+        {
+            throw new InvalidOperationException("The HSMS session state machine is no longer accepting commands.");
+        }
+
+        return completion.Task;
+    }
+
     private Task RequestCommandAsync(
         MachineInputKind kind,
         CancellationToken cancellationToken)
@@ -140,6 +178,7 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
 
         CancelT6();
         CancelT7();
+        FailPendingDataSends(new ObjectDisposedException(nameof(HsmsSessionStateMachine)));
         _pendingControlCommand?.Completion.TrySetCanceled();
         _separateCompletion?.TrySetCanceled();
         _events.Writer.TryComplete();
@@ -236,6 +275,17 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
                     HsmsMessageType.DeselectResponse,
                     SendPurpose.DeselectRequest);
                 break;
+            case MachineInputKind.DataSendRequested:
+                ProcessDataSendRequested(
+                    input.DataSend!,
+                    input.CancellationToken);
+                break;
+            case MachineInputKind.DataSendCompleted:
+                ProcessDataSendCompleted(input.DataSend!);
+                break;
+            case MachineInputKind.DataSendFailed:
+                ProcessDataSendFailed(input.DataSend!, input.Error!);
+                break;
             case MachineInputKind.TransportFailed:
                 ProcessTransportFailure(input.Error!);
                 break;
@@ -308,6 +358,7 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
         _pendingSelectSystemBytes = null;
         var closeError =
             error ?? new HsmsTransportSessionExpiredException(closedSessionId);
+        FailPendingDataSends(closeError, closedSessionId);
         _pendingControlCommand?.Completion.TrySetException(closeError);
         _pendingControlCommand = null;
         _sessionId = default;
@@ -761,6 +812,47 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
             ProcessSessionClosed(error);
     }
 
+    private void ProcessDataSendRequested(
+        PendingDataSend operation,
+        CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested)
+        {
+            operation.Completion.TrySetCanceled(cancellationToken);
+            return;
+        }
+
+        if (State != HsmsSessionState.Selected || !_sessionId.IsValid)
+        {
+            operation.Completion.TrySetException(
+                new InvalidOperationException(
+                    "An HSMS data message requires a selected session."));
+            return;
+        }
+
+        operation.SessionId = _sessionId;
+        _pendingDataSends.Add(operation);
+        _ = SendDataFrameAsync(operation);
+    }
+
+    private void ProcessDataSendCompleted(PendingDataSend operation)
+    {
+        if (_pendingDataSends.Remove(operation))
+            operation.Completion.TrySetResult(true);
+    }
+
+    private void ProcessDataSendFailed(
+        PendingDataSend operation,
+        Exception error)
+    {
+        if (!_pendingDataSends.Remove(operation))
+            return;
+
+        operation.Completion.TrySetException(error);
+        if (operation.SessionId == _sessionId)
+            AbortCurrentSession(error);
+    }
+
     private void StartControlSend(SendOperation operation)
     {
         var messageType = operation.Purpose switch
@@ -816,6 +908,25 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
         catch (Exception ex)
         {
             _inputs.Writer.TryWrite(MachineInput.SendFailed(operation, ex));
+        }
+    }
+
+    private async Task SendDataFrameAsync(PendingDataSend operation)
+    {
+        try
+        {
+            await _transport.SendAsync(
+                operation.SessionId,
+                operation.Frame,
+                _lifetime?.Token ?? CancellationToken.None).ConfigureAwait(false);
+            _inputs.Writer.TryWrite(MachineInput.DataSendCompleted(operation));
+        }
+        catch (OperationCanceledException) when (_lifetime?.IsCancellationRequested == true)
+        {
+        }
+        catch (Exception ex)
+        {
+            _inputs.Writer.TryWrite(MachineInput.DataSendFailed(operation, ex));
         }
     }
 
@@ -883,6 +994,24 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
     {
         if (_sessionId.IsValid)
             _transport.TryCloseSession(_sessionId, error);
+    }
+
+    private void FailPendingDataSends(
+        Exception error,
+        HsmsTransportSessionId sessionId = default)
+    {
+        if (_pendingDataSends.Count == 0)
+            return;
+
+        var pending = _pendingDataSends.ToArray();
+        foreach (var operation in pending)
+        {
+            if (sessionId.IsValid && operation.SessionId != sessionId)
+                continue;
+
+            _pendingDataSends.Remove(operation);
+            operation.Completion.TrySetException(error);
+        }
     }
 
     private void ArmT6()
@@ -981,6 +1110,9 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
         SeparateRequested,
         LinktestRequested,
         DeselectRequested,
+        DataSendRequested,
+        DataSendCompleted,
+        DataSendFailed,
         TransportFailed,
     }
 
@@ -1027,6 +1159,23 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
         public TaskCompletionSource<bool> Completion { get; }
     }
 
+    private sealed class PendingDataSend
+    {
+        public PendingDataSend(
+            HsmsFrame frame,
+            TaskCompletionSource<bool> completion)
+        {
+            Frame = frame;
+            Completion = completion;
+        }
+
+        public HsmsTransportSessionId SessionId { get; set; }
+
+        public HsmsFrame Frame { get; }
+
+        public TaskCompletionSource<bool> Completion { get; }
+    }
+
     private sealed class MachineInput
     {
         private MachineInput(MachineInputKind kind)
@@ -1039,6 +1188,8 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
         public HsmsTransportEvent TransportEvent { get; private init; }
 
         public SendOperation SendOperation { get; private init; }
+
+        public PendingDataSend? DataSend { get; private init; }
 
         public Exception? Error { get; private init; }
 
@@ -1062,6 +1213,27 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
 
         public static MachineInput T7Expired(int generation)
             => new(MachineInputKind.T7Expired) { Generation = generation };
+
+        public static MachineInput DataSendRequested(
+            PendingDataSend operation,
+            CancellationToken cancellationToken)
+            => new(MachineInputKind.DataSendRequested)
+            {
+                DataSend = operation,
+                CancellationToken = cancellationToken,
+            };
+
+        public static MachineInput DataSendCompleted(PendingDataSend operation)
+            => new(MachineInputKind.DataSendCompleted) { DataSend = operation };
+
+        public static MachineInput DataSendFailed(
+            PendingDataSend operation,
+            Exception error)
+            => new(MachineInputKind.DataSendFailed)
+            {
+                DataSend = operation,
+                Error = error,
+            };
 
         public static MachineInput CommandRequested(
             MachineInputKind kind,

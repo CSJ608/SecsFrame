@@ -34,12 +34,16 @@ var envelope = new HsmsDataMessage(
     message);
 
 var codec = new HsmsDataMessageCodec();
+var frame = codec.EncodeFrame(envelope);
 ~~~
 
 <code>HsmsDataMessageCodec</code> 实现 StreamFrame 的
 <code>ICodec&lt;HsmsDataMessage&gt;</code>，其输入输出是 HSMS Payload：
 十字节消息头加可选的 SECS-II Item。四字节大端长度前缀属于
 <code>HsmsFramer</code>。
+<code>EncodeFrame</code> 与接收 <code>HsmsFrame</code> 的
+<code>Decode</code> 重载供内部会话/事务路径复用相同严格 Item 规则，
+同样不包含四字节长度前缀。
 
 解码默认：
 
@@ -57,12 +61,17 @@ var codec = new HsmsDataMessageCodec(
     new SecsItemCodec(maxNestingDepth: 32, maxItemCount: 100_000));
 ~~~
 
-## 当前不包含
+## 事务集成
 
 本层不判断某个 SxFy 是否由标准或设备支持，也不实现 primary/secondary
-匹配、T3、System Bytes 分配、会话状态或重试。W-Bit 与 Function 的业务
-约束属于后续 E5 事务层；Select 等控制消息继续由
-<code>HsmsFrameCodec</code> 和后续 HSMS 状态机处理。
+匹配、T3、System Bytes 分配、会话状态或重试。这些生命周期由独立的
+内部 <code>HsmsDataTransactionManager</code> 组合，不进入不可变消息
+模型或编解码器。事务层仍不要求预注册 SxFy，边界见
+[HSMS-DATA-TRANSACTIONS.md](HSMS-DATA-TRANSACTIONS.md)。
+
+W-Bit 与 Function 的完整 E5 业务约束、SxF0/S9Fx 和重试策略尚未实现；
+Select 等控制消息继续由 <code>HsmsFrameCodec</code> 和 HSMS 会话状态机
+处理。
 
 实现追踪 SEMI E5-0725、E37-0222 和 E37.1-0819，但尚未使用完整标准和
 一致性测试验证，因此不声明完整合规。标准版本与版权边界见

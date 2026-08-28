@@ -14,14 +14,15 @@
 - [x] Active/Passive 共用状态机的 Select/Select Response、Separate、
   T6/T7、System Bytes 关联和会话失效处理。
 - [x] Linktest、Reject、Deselect 控制消息与对应 T6 分支。
-- [ ] T3 数据事务、T5 重连节流和 T8 标准边界核对。
+- [x] Selected 数据发送、Primary/Secondary 关联、T3 与入站同事务回复。
+- [ ] T5 重连节流和 T8 标准边界核对。
 - Host、Equipment 双角色回环集成测试，以及与 secs4net 的互操作测试。
 
-阶段 1 的下一最小切片是 T3 数据事务管理器：只在 Selected 发送 Primary
-Message，从整帧实际写出后启动 T3，按 Session ID 与 System Bytes 关联
-Secondary Message，并在超时、Reject、Deselect 或连接关闭时结束等待。
-它依赖已完成的会话事件流和控制平面，但不依赖 GEM 消息目录。GEM 通讯
-建立依赖这项事务能力。
+阶段 1 的下一最小切片是 T5 重连节流与 T8 接收边界：把当前
+StreamFrame 重连间隔和未完成帧监视提升为明确的 HSMS 计时状态，补充
+连接抖动、部分长度头、部分 Payload、替换会话和旧计时器隔离测试。精确
+启停与默认值必须先用团队合法获得的 E37/E37.1 副本核对。它完成后再稳定
+公共连接外观，并开展与 secs4net 的跨实现事务互操作。
 
 ## 阶段 2：GEM 通用能力
 
