@@ -76,8 +76,12 @@ API。#38 已合入上游但尚未发布，#39 正在实现；正式包可用后
 
 公共 <code>SecsHost</code> 与 <code>SecsEquipment</code> 在连接和动态路由
 之上建立角色组合边界。两者都拥有连接生命周期、事件流、动态发送和
-Primary 处理能力；角色固定但 Active/Passive 仍由独立选项决定。后续 GEM
+Primary 处理能力；角色固定但 Active/Passive 仍由独立选项决定。GEM
 能力依赖具体角色类型，不反向污染 HSMS 状态机。
+独立 <code>SecsFrame.Gem</code> 程序集已在这一边界上提供可配置的通讯建立、
+上下线、动态状态变量、设备常量和应用托管时钟；它通过现有端点路由处理
+Primary，不创建第二个连接事件消费者。详细边界见
+[GEM-FOUNDATION.md](GEM-FOUNDATION.md)。
 
 ~~~text
 TCP SessionOpened

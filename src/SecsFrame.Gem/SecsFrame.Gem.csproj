@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;net8.0;net10.0</TargetFrameworks>
+    <Description>Foundational GEM behaviors built on SecsFrame.</Description>
+    <PackageId>SecsFrame.Gem</PackageId>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>secs;secs-ii;hsms;gem;semiconductor;secsframe</PackageTags>
+    <Version>0.1.0-alpha.1</Version>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Meziantou.Analyzer" PrivateAssets="all" />
+    <PackageReference Include="PolySharp" PrivateAssets="all" />
+    <ProjectReference Include="..\SecsFrame\SecsFrame.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+</Project>

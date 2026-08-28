@@ -12,7 +12,7 @@
 - 标准严格模式为默认行为；现场设备兼容选项显式启用并有回归测试。
 - 支持 SML 调试格式，并逐步支持 SEMI E173 SMN 与 E172 SEDD。
 
-## 规划包
+## 包边界
 
 | 包 | 职责 |
 |---|---|
@@ -29,7 +29,9 @@
 Deselect、Separate、T6/T7 和 Selected 数据门控。内部数据事务 actor
 进一步提供实际写出后启动的 T3、复合事务键关联、入站回复和会话失效
 隔离。公共 <code>HsmsConnection</code> 将这些内部层组合成显式计时
-配置、动态消息收发、状态等待和单消费者事件流。Item 用法与边界见
+配置、动态消息收发、状态等待和单消费者事件流。
+独立 <code>SecsFrame.Gem</code> 已提供第一组可配置 GEM 基础行为，包含
+通讯建立、上下线、动态变量/常量和应用托管时钟。Item 用法与边界见
 [docs/SECS-II-ITEMS.md](docs/SECS-II-ITEMS.md)，消息集成见
 [docs/SECS-MESSAGES.md](docs/SECS-MESSAGES.md)，传输适配边界见
 [docs/STREAMFRAME-ADAPTER.md](docs/STREAMFRAME-ADAPTER.md)，状态机边界见
@@ -44,6 +46,8 @@ Deselect、Separate、T6/T7 和 Selected 数据门控。内部数据事务 actor
 [docs/HSMS-PRIMARY-ROUTING.md](docs/HSMS-PRIMARY-ROUTING.md)，
 Host/Equipment 端点见
 [docs/SECS-ENDPOINT-ROLES.md](docs/SECS-ENDPOINT-ROLES.md)，
+独立 GEM 基础行为见
+[docs/GEM-FOUNDATION.md](docs/GEM-FOUNDATION.md)，
 官方 secs4net 跨实现证据见
 [docs/SECS4NET-INTEROP.md](docs/SECS4NET-INTEROP.md)，
 整体路线图见

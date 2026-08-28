@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/SecsFrame.Gem/SecsFrame.Gem.csproj" />
     <Project Path="src/SecsFrame/SecsFrame.csproj" />
   </Folder>
   <Folder Name="/test/">
