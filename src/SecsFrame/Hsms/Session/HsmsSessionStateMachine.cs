@@ -19,6 +19,7 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
     private IHsmsTransportTimer? _t7Timer;
     private HsmsTransportSessionId _sessionId;
     private uint? _pendingSelectSystemBytes;
+    private PendingControlCommand? _pendingControlCommand;
     private TaskCompletionSource<bool>? _separateCompletion;
     private int _t6Generation;
     private int _t7Generation;
@@ -86,6 +87,17 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
     }
 
     public Task SeparateAsync(CancellationToken cancellationToken = default)
+        => RequestCommandAsync(MachineInputKind.SeparateRequested, cancellationToken);
+
+    public Task LinktestAsync(CancellationToken cancellationToken = default)
+        => RequestCommandAsync(MachineInputKind.LinktestRequested, cancellationToken);
+
+    public Task DeselectAsync(CancellationToken cancellationToken = default)
+        => RequestCommandAsync(MachineInputKind.DeselectRequested, cancellationToken);
+
+    private Task RequestCommandAsync(
+        MachineInputKind kind,
+        CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
         if (Volatile.Read(ref _started) == 0)
@@ -94,8 +106,11 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
 
         var completion = new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        if (!_inputs.Writer.TryWrite(MachineInput.SeparateRequested(completion, cancellationToken)))
+        if (!_inputs.Writer.TryWrite(
+            MachineInput.CommandRequested(kind, completion, cancellationToken)))
+        {
             throw new InvalidOperationException("The HSMS session state machine is no longer accepting commands.");
+        }
 
         return completion.Task;
     }
@@ -125,6 +140,7 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
 
         CancelT6();
         CancelT7();
+        _pendingControlCommand?.Completion.TrySetCanceled();
         _separateCompletion?.TrySetCanceled();
         _events.Writer.TryComplete();
         _lifetime?.Dispose();
@@ -204,6 +220,22 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
             case MachineInputKind.SeparateRequested:
                 ProcessSeparateRequested(input.Completion!, input.CancellationToken);
                 break;
+            case MachineInputKind.LinktestRequested:
+                ProcessControlRequested(
+                    input.Completion!,
+                    input.CancellationToken,
+                    HsmsMessageType.LinktestRequest,
+                    HsmsMessageType.LinktestResponse,
+                    SendPurpose.LinktestRequest);
+                break;
+            case MachineInputKind.DeselectRequested:
+                ProcessControlRequested(
+                    input.Completion!,
+                    input.CancellationToken,
+                    HsmsMessageType.DeselectRequest,
+                    HsmsMessageType.DeselectResponse,
+                    SendPurpose.DeselectRequest);
+                break;
             case MachineInputKind.TransportFailed:
                 ProcessTransportFailure(input.Error!);
                 break;
@@ -246,6 +278,7 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
 
         _sessionId = sessionId;
         _pendingSelectSystemBytes = null;
+        _pendingControlCommand = null;
         Transition(HsmsSessionState.Connected);
         ArmT7();
 
@@ -260,7 +293,8 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
                 sessionId,
                 SendPurpose.SelectRequest,
                 systemBytes,
-                HsmsSelectStatus.Success));
+                0,
+                0));
     }
 
     private void ProcessSessionClosed(Exception? error)
@@ -272,9 +306,12 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
         CancelT6();
         CancelT7();
         _pendingSelectSystemBytes = null;
+        var closeError =
+            error ?? new HsmsTransportSessionExpiredException(closedSessionId);
+        _pendingControlCommand?.Completion.TrySetException(closeError);
+        _pendingControlCommand = null;
         _sessionId = default;
-        _separateCompletion?.TrySetException(
-            error ?? new HsmsTransportSessionExpiredException(closedSessionId));
+        _separateCompletion?.TrySetException(closeError);
         _separateCompletion = null;
         Transition(closedSessionId, HsmsSessionState.Disconnected, error);
     }
@@ -282,13 +319,17 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
     private void ProcessFrame(HsmsFrame frame)
     {
         var header = frame.Header;
+        if (header.PresentationType != 0)
+        {
+            SendReject(header, HsmsRejectReason.UnsupportedPresentationType);
+            return;
+        }
+
         if (header.IsDataMessage)
         {
             if (State != HsmsSessionState.Selected)
             {
-                AbortCurrentSession(
-                    new HsmsProtocolException(
-                        "An HSMS data message was received before the session was selected."));
+                SendReject(header, HsmsRejectReason.EntityNotSelected);
                 return;
             }
 
@@ -297,10 +338,31 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
             return;
         }
 
-        var validationError = ValidateControlHeader(header);
-        if (validationError is not null)
+        ProcessControlFrame(frame);
+    }
+
+    private void ProcessControlFrame(HsmsFrame frame)
+    {
+        var header = frame.Header;
+        if (header.SessionId != ushort.MaxValue)
         {
-            AbortCurrentSession(validationError);
+            AbortCurrentSession(
+                new HsmsProtocolException(
+                    "An HSMS control message must use Session ID 0xFFFF."));
+            return;
+        }
+
+        if (header.MessageType == HsmsMessageType.RejectRequest)
+        {
+            ProcessRejectRequest(frame);
+            return;
+        }
+
+        if (header.HeaderByte2 != 0)
+        {
+            AbortCurrentSession(
+                new HsmsProtocolException(
+                    "An HSMS control message other than Reject Request must use header byte 2 value zero."));
             return;
         }
 
@@ -312,13 +374,23 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
             case HsmsMessageType.SelectResponse:
                 ProcessSelectResponse(header);
                 break;
+            case HsmsMessageType.DeselectRequest:
+                ProcessDeselectRequest(header);
+                break;
+            case HsmsMessageType.DeselectResponse:
+                ProcessDeselectResponse(header);
+                break;
+            case HsmsMessageType.LinktestRequest:
+                ProcessLinktestRequest(header);
+                break;
+            case HsmsMessageType.LinktestResponse:
+                ProcessLinktestResponse(header);
+                break;
             case HsmsMessageType.SeparateRequest:
                 ProcessSeparateRequest(header);
                 break;
             default:
-                AbortCurrentSession(
-                    new HsmsProtocolException(
-                        $"Control message {header.MessageType} is not supported by the Select/Separate state machine."));
+                SendReject(header, HsmsRejectReason.UnsupportedSessionType);
                 break;
         }
     }
@@ -340,7 +412,8 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
                 _sessionId,
                 SendPurpose.SelectResponse,
                 header.SystemBytes,
-                status));
+                0,
+                (byte)status));
     }
 
     private void ProcessSelectResponse(HsmsMessageHeader header)
@@ -348,9 +421,7 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
         if (_pendingSelectSystemBytes is not { } expectedSystemBytes ||
             header.SystemBytes != expectedSystemBytes)
         {
-            AbortCurrentSession(
-                new HsmsProtocolException(
-                    $"Unexpected Select Response System Bytes 0x{header.SystemBytes:X8}."));
+            SendReject(header, HsmsRejectReason.TransactionNotOpen);
             return;
         }
 
@@ -366,6 +437,143 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
         Transition(
             HsmsSessionState.Connected,
             new HsmsSelectionRejectedException(status));
+    }
+
+    private void ProcessLinktestRequest(HsmsMessageHeader header)
+    {
+        if (header.HeaderByte3 != 0)
+        {
+            AbortCurrentSession(
+                new HsmsProtocolException("Linktest Request must use status byte zero."));
+            return;
+        }
+
+        StartControlSend(
+            new SendOperation(
+                _sessionId,
+                SendPurpose.LinktestResponse,
+                header.SystemBytes,
+                0,
+                0));
+    }
+
+    private void ProcessLinktestResponse(HsmsMessageHeader header)
+    {
+        if (header.HeaderByte3 != 0)
+        {
+            AbortCurrentSession(
+                new HsmsProtocolException("Linktest Response must use status byte zero."));
+            return;
+        }
+
+        if (!TryTakePendingControlResponse(
+            header,
+            HsmsMessageType.LinktestResponse,
+            out var pending))
+        {
+            return;
+        }
+
+        pending.Completion.TrySetResult(true);
+    }
+
+    private void ProcessDeselectRequest(HsmsMessageHeader header)
+    {
+        if (header.HeaderByte3 != 0)
+        {
+            AbortCurrentSession(
+                new HsmsProtocolException("Deselect Request must use status byte zero."));
+            return;
+        }
+
+        var status = State == HsmsSessionState.Selected
+            ? HsmsDeselectStatus.Success
+            : HsmsDeselectStatus.NotSelected;
+        StartControlSend(
+            new SendOperation(
+                _sessionId,
+                SendPurpose.DeselectResponse,
+                header.SystemBytes,
+                0,
+                (byte)status));
+    }
+
+    private void ProcessDeselectResponse(HsmsMessageHeader header)
+    {
+        if (!TryTakePendingControlResponse(
+            header,
+            HsmsMessageType.DeselectResponse,
+            out var pending))
+        {
+            return;
+        }
+
+        var status = DecodeDeselectStatus(header.HeaderByte3);
+        if (status != HsmsDeselectStatus.Success)
+        {
+            pending.Completion.TrySetException(
+                new HsmsDeselectRejectedException(status));
+            return;
+        }
+
+        EnterConnectedAfterDeselect();
+        pending.Completion.TrySetResult(true);
+    }
+
+    private void ProcessRejectRequest(HsmsFrame frame)
+    {
+        var header = frame.Header;
+        var reason = DecodeRejectReason(header.HeaderByte3);
+        var error = new HsmsControlRejectedException(
+            header.HeaderByte2,
+            reason);
+
+        if (_pendingSelectSystemBytes == header.SystemBytes &&
+            header.HeaderByte2 == (byte)HsmsMessageType.SelectRequest)
+        {
+            _pendingSelectSystemBytes = null;
+            CancelT6();
+            Transition(HsmsSessionState.Connected, error);
+            return;
+        }
+
+        var pending = _pendingControlCommand;
+        if (pending is null ||
+            pending.SystemBytes != header.SystemBytes ||
+            (byte)pending.RequestType != header.HeaderByte2)
+        {
+            _events.Writer.TryWrite(
+                HsmsSessionEvent.ControlMessageReceived(
+                    _sessionId,
+                    State,
+                    frame));
+            return;
+        }
+
+        _pendingControlCommand = null;
+        CancelT6();
+        pending.Completion.TrySetException(error);
+    }
+
+    private bool TryTakePendingControlResponse(
+        HsmsMessageHeader header,
+        HsmsMessageType responseType,
+        out PendingControlCommand pending)
+    {
+        var candidate = _pendingControlCommand;
+        if (candidate is null ||
+            candidate.ResponseType != responseType ||
+            candidate.SystemBytes != header.SystemBytes)
+        {
+            SendReject(header, HsmsRejectReason.TransactionNotOpen);
+            pending = null!;
+            return false;
+        }
+
+        _pendingControlCommand = null;
+        CancelT6();
+        pending = candidate;
+        return true;
     }
 
     private void ProcessSeparateRequest(HsmsMessageHeader header)
@@ -395,8 +603,25 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
                 }
                 break;
             case SendPurpose.SelectResponse:
-                if (operation.SelectStatus == HsmsSelectStatus.Success)
+                if (operation.HeaderByte3 == (byte)HsmsSelectStatus.Success)
                     EnterSelected();
+                break;
+            case SendPurpose.LinktestRequest:
+            case SendPurpose.DeselectRequest:
+                var pending = _pendingControlCommand;
+                if (pending is not null &&
+                    pending.SystemBytes == operation.SystemBytes &&
+                    pending.RequestType == GetRequestType(operation.Purpose))
+                {
+                    ArmT6();
+                }
+                break;
+            case SendPurpose.DeselectResponse:
+                if (operation.HeaderByte3 == (byte)HsmsDeselectStatus.Success)
+                    EnterConnectedAfterDeselect();
+                break;
+            case SendPurpose.LinktestResponse:
+            case SendPurpose.Reject:
                 break;
             case SendPurpose.Separate:
                 _separateCompletion?.TrySetResult(true);
@@ -429,8 +654,8 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
     {
         if (generation != _t6Generation ||
             !_sessionId.IsValid ||
-            _pendingSelectSystemBytes is null ||
-            State == HsmsSessionState.Selected)
+            (_pendingSelectSystemBytes is null &&
+                _pendingControlCommand is null))
         {
             return;
         }
@@ -467,10 +692,11 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
             return;
         }
 
-        if (_separateCompletion is not null)
+        if (_separateCompletion is not null ||
+            _pendingControlCommand is not null)
         {
             completion.TrySetException(
-                new InvalidOperationException("A Separate Request is already in progress."));
+                new InvalidOperationException("Another HSMS control command is already in progress."));
             return;
         }
 
@@ -480,7 +706,53 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
                 _sessionId,
                 SendPurpose.Separate,
                 _systemBytesProvider.Next(),
-                HsmsSelectStatus.Success));
+                0,
+                0));
+    }
+
+    private void ProcessControlRequested(
+        TaskCompletionSource<bool> completion,
+        CancellationToken cancellationToken,
+        HsmsMessageType requestType,
+        HsmsMessageType responseType,
+        SendPurpose sendPurpose)
+    {
+        if (cancellationToken.IsCancellationRequested)
+        {
+            completion.TrySetCanceled(cancellationToken);
+            return;
+        }
+
+        if (State != HsmsSessionState.Selected || !_sessionId.IsValid)
+        {
+            completion.TrySetException(
+                new InvalidOperationException(
+                    $"{requestType} requires a selected HSMS session."));
+            return;
+        }
+
+        if (_pendingControlCommand is not null ||
+            _separateCompletion is not null)
+        {
+            completion.TrySetException(
+                new InvalidOperationException(
+                    "Another HSMS control command is already in progress."));
+            return;
+        }
+
+        var systemBytes = _systemBytesProvider.Next();
+        _pendingControlCommand = new PendingControlCommand(
+            requestType,
+            responseType,
+            systemBytes,
+            completion);
+        StartControlSend(
+            new SendOperation(
+                _sessionId,
+                sendPurpose,
+                systemBytes,
+                0,
+                0));
     }
 
     private void ProcessTransportFailure(Exception error)
@@ -495,20 +767,35 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
         {
             SendPurpose.SelectRequest => HsmsMessageType.SelectRequest,
             SendPurpose.SelectResponse => HsmsMessageType.SelectResponse,
+            SendPurpose.DeselectRequest => HsmsMessageType.DeselectRequest,
+            SendPurpose.DeselectResponse => HsmsMessageType.DeselectResponse,
+            SendPurpose.LinktestRequest => HsmsMessageType.LinktestRequest,
+            SendPurpose.LinktestResponse => HsmsMessageType.LinktestResponse,
+            SendPurpose.Reject => HsmsMessageType.RejectRequest,
             SendPurpose.Separate => HsmsMessageType.SeparateRequest,
             _ => throw new ArgumentOutOfRangeException(
                 nameof(operation),
                 operation.Purpose,
                 "Unknown send purpose."),
         };
-        var status = operation.Purpose == SendPurpose.SelectResponse
-            ? (byte)operation.SelectStatus
-            : (byte)0;
-        var frame = new HsmsFrame(
-            HsmsMessageHeader.CreateControl(
+        if (operation.Purpose != SendPurpose.Reject &&
+            operation.HeaderByte2 != 0)
+        {
+            throw new InvalidOperationException(
+                "Only Reject Request can use a nonzero HSMS header byte 2.");
+        }
+
+        var header = operation.Purpose == SendPurpose.Reject
+            ? HsmsMessageHeader.CreateReject(
+                operation.SystemBytes,
+                operation.HeaderByte2,
+                operation.HeaderByte3)
+            : HsmsMessageHeader.CreateControl(
                 messageType,
                 operation.SystemBytes,
-                status));
+                operation.HeaderByte3);
+        var frame = new HsmsFrame(
+            header);
 
         _ = SendControlAsync(operation, frame);
     }
@@ -538,6 +825,59 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
         CancelT7();
         Transition(HsmsSessionState.Selected);
     }
+
+    private void EnterConnectedAfterDeselect()
+    {
+        if (State != HsmsSessionState.Selected)
+            return;
+
+        CancelT6();
+        var pending = _pendingControlCommand;
+        _pendingControlCommand = null;
+        Transition(HsmsSessionState.Connected);
+        ArmT7();
+
+        if (pending is not null)
+        {
+            if (pending.RequestType == HsmsMessageType.DeselectRequest)
+            {
+                pending.Completion.TrySetResult(true);
+            }
+            else
+            {
+                pending.Completion.TrySetException(
+                    new IOException(
+                        $"{pending.RequestType} was interrupted because the HSMS session was deselected."));
+            }
+        }
+    }
+
+    private void SendReject(
+        HsmsMessageHeader rejectedHeader,
+        HsmsRejectReason reason)
+    {
+        if (!_sessionId.IsValid)
+            return;
+
+        StartControlSend(
+            new SendOperation(
+                _sessionId,
+                SendPurpose.Reject,
+                rejectedHeader.SystemBytes,
+                (byte)rejectedHeader.MessageType,
+                (byte)reason));
+    }
+
+    private static HsmsMessageType GetRequestType(SendPurpose purpose)
+        => purpose switch
+        {
+            SendPurpose.LinktestRequest => HsmsMessageType.LinktestRequest,
+            SendPurpose.DeselectRequest => HsmsMessageType.DeselectRequest,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(purpose),
+                purpose,
+                "The send purpose is not a control request."),
+        };
 
     private void AbortCurrentSession(Exception error)
     {
@@ -599,18 +939,6 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
             throw new ObjectDisposedException(nameof(HsmsSessionStateMachine));
     }
 
-    private static HsmsProtocolException? ValidateControlHeader(HsmsMessageHeader header)
-    {
-        if (header.SessionId != ushort.MaxValue)
-            return new HsmsProtocolException("An HSMS control message must use Session ID 0xFFFF.");
-        if (header.HeaderByte2 != 0)
-            return new HsmsProtocolException("An HSMS control message must use header byte 2 value zero.");
-        if (header.PresentationType != 0)
-            return new HsmsProtocolException("An HSMS control message must use PType zero.");
-
-        return null;
-    }
-
     private static HsmsSelectStatus DecodeSelectStatus(byte value)
         => value switch
         {
@@ -621,6 +949,28 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
             _ => (HsmsSelectStatus)value,
         };
 
+    private static HsmsDeselectStatus DecodeDeselectStatus(byte value)
+        => value switch
+        {
+            (byte)HsmsDeselectStatus.Success => HsmsDeselectStatus.Success,
+            (byte)HsmsDeselectStatus.NotSelected => HsmsDeselectStatus.NotSelected,
+            _ => (HsmsDeselectStatus)value,
+        };
+
+    private static HsmsRejectReason DecodeRejectReason(byte value)
+        => value switch
+        {
+            (byte)HsmsRejectReason.UnsupportedSessionType =>
+                HsmsRejectReason.UnsupportedSessionType,
+            (byte)HsmsRejectReason.UnsupportedPresentationType =>
+                HsmsRejectReason.UnsupportedPresentationType,
+            (byte)HsmsRejectReason.TransactionNotOpen =>
+                HsmsRejectReason.TransactionNotOpen,
+            (byte)HsmsRejectReason.EntityNotSelected =>
+                HsmsRejectReason.EntityNotSelected,
+            _ => (HsmsRejectReason)value,
+        };
+
     private enum MachineInputKind
     {
         Transport,
@@ -629,6 +979,8 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
         T6Expired,
         T7Expired,
         SeparateRequested,
+        LinktestRequested,
+        DeselectRequested,
         TransportFailed,
     }
 
@@ -636,6 +988,11 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
     {
         SelectRequest,
         SelectResponse,
+        DeselectRequest,
+        DeselectResponse,
+        LinktestRequest,
+        LinktestResponse,
+        Reject,
         Separate,
     }
 
@@ -644,7 +1001,31 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
         HsmsTransportSessionId SessionId,
         SendPurpose Purpose,
         uint SystemBytes,
-        HsmsSelectStatus SelectStatus);
+        byte HeaderByte2,
+        byte HeaderByte3);
+
+    private sealed class PendingControlCommand
+    {
+        public PendingControlCommand(
+            HsmsMessageType requestType,
+            HsmsMessageType responseType,
+            uint systemBytes,
+            TaskCompletionSource<bool> completion)
+        {
+            RequestType = requestType;
+            ResponseType = responseType;
+            SystemBytes = systemBytes;
+            Completion = completion;
+        }
+
+        public HsmsMessageType RequestType { get; }
+
+        public HsmsMessageType ResponseType { get; }
+
+        public uint SystemBytes { get; }
+
+        public TaskCompletionSource<bool> Completion { get; }
+    }
 
     private sealed class MachineInput
     {
@@ -682,14 +1063,27 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
         public static MachineInput T7Expired(int generation)
             => new(MachineInputKind.T7Expired) { Generation = generation };
 
-        public static MachineInput SeparateRequested(
+        public static MachineInput CommandRequested(
+            MachineInputKind kind,
             TaskCompletionSource<bool> completion,
             CancellationToken cancellationToken)
-            => new(MachineInputKind.SeparateRequested)
+        {
+            if (kind != MachineInputKind.SeparateRequested &&
+                kind != MachineInputKind.LinktestRequested &&
+                kind != MachineInputKind.DeselectRequested)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(kind),
+                    kind,
+                    "The input kind is not a local HSMS command.");
+            }
+
+            return new MachineInput(kind)
             {
                 Completion = completion,
                 CancellationToken = cancellationToken,
             };
+        }
 
         public static MachineInput TransportFailed(Exception error)
             => new(MachineInputKind.TransportFailed) { Error = error };

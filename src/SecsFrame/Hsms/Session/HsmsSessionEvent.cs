@@ -11,12 +11,15 @@ internal readonly record struct HsmsSessionEvent
     {
         if (!sessionId.IsValid)
             throw new ArgumentOutOfRangeException(nameof(sessionId), sessionId, "The transport session identifier must be positive.");
-        if (kind == HsmsSessionEventKind.DataMessageReceived && frame is null)
+        var carriesFrame =
+            kind == HsmsSessionEventKind.DataMessageReceived ||
+            kind == HsmsSessionEventKind.ControlMessageReceived;
+        if (carriesFrame && frame is null)
             throw new ArgumentNullException(nameof(frame));
-        if (kind == HsmsSessionEventKind.StateChanged && frame is not null)
-            throw new ArgumentException("A state change cannot carry a data frame.", nameof(frame));
-        if (kind == HsmsSessionEventKind.DataMessageReceived && error is not null)
-            throw new ArgumentException("A data message cannot carry a state error.", nameof(error));
+        if (!carriesFrame && frame is not null)
+            throw new ArgumentException("A state change cannot carry an HSMS frame.", nameof(frame));
+        if (carriesFrame && error is not null)
+            throw new ArgumentException("A received frame cannot carry a state error.", nameof(error));
 
         Kind = kind;
         SessionId = sessionId;
@@ -45,4 +48,10 @@ internal readonly record struct HsmsSessionEvent
         HsmsTransportSessionId sessionId,
         HsmsFrame frame)
         => new(HsmsSessionEventKind.DataMessageReceived, sessionId, HsmsSessionState.Selected, frame, null);
+
+    public static HsmsSessionEvent ControlMessageReceived(
+        HsmsTransportSessionId sessionId,
+        HsmsSessionState state,
+        HsmsFrame frame)
+        => new(HsmsSessionEventKind.ControlMessageReceived, sessionId, state, frame, null);
 }

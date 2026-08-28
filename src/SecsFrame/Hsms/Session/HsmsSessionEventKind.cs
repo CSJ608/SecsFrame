@@ -4,4 +4,5 @@ internal enum HsmsSessionEventKind
 {
     StateChanged,
     DataMessageReceived,
+    ControlMessageReceived,
 }

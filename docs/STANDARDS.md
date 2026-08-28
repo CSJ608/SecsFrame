@@ -8,7 +8,7 @@
 | 层 | 标准版本 | 当前状态 |
 |---|---|---|
 | SECS-II 消息内容 | SEMI E5-0725 | Item 与动态消息编解码已实现；事务规则待核对 |
-| HSMS / HSMS-SS | SEMI E37-0222 / E37.1-0819 | 帧、Data Payload、内部传输与 Select/Separate 状态机已有工程实现；仍待授权标准和一致性测试核对 |
+| HSMS / HSMS-SS | SEMI E37-0222 / E37.1-0819 | 帧、Data Payload、内部传输与 Select/Linktest/Reject/Deselect/Separate 状态机已有工程实现；仍待授权标准和一致性测试核对 |
 | GEM | SEMI E30-0526 | 规划中 |
 | SEDD | SEMI E172-0225 | 规划中 |
 | SMN | SEMI E173-0721 | 规划中 |
@@ -28,9 +28,9 @@
   向量是工程验证基线，不替代合法标准副本或一致性测试。
 - E37/E37.1：Single Selected Session 的状态转换、控制消息字段、拒绝
   原因、并发 Select、T5/T6/T7/T8 的精确启停边界、Separate 后的连接
-  处理，以及 Linktest/Reject/Deselect 规则。当前 Select/Separate 状态机
-  和未完成帧计时器是工程验证基线，具体默认值、状态表和一致性结论仍须
-  依合法标准副本核对。
+  处理，以及 Linktest/Reject/Deselect 规则。当前控制平面枚举值、非
+  Selected 下 Linktest 响应、Deselect 状态处理和未完成帧计时器都是工程
+  验证基线；具体默认值、状态表和一致性结论仍须依合法标准副本核对。
 - E30：通讯建立、在线/离线、变量、事件报告、报警、远程命令和时钟能力
   的必选/可选边界。
 - E172/E173：允许分发的 Schema/表示形式、版本标识、扩展点和验证规则。

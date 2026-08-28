@@ -21,5 +21,13 @@
   匹配、非法状态关闭和 Selected 数据门控。
 - 增加并发 Select、选择拒绝、超时、非法控制头、Separate、旧计时器
   隔离及 Active/Passive 真实 TCP 握手测试。
+- 增加本地 Linktest 与 Deselect 控制命令，响应使用 System Bytes
+  关联且 T6 从整帧实际写出后启动。
+- 增加 Linktest/Deselect 对端处理、Deselect 后 Connected/T7 转换和
+  控制命令单飞约束。
+- 增加 Reject Request 专用头模型，以及 Unsupported SType、Unsupported
+  PType、Transaction Not Open 和 Entity Not Selected 的严格生成路径。
+- 增加未被会话层消费的 Reject 事件转发、非法控制字段、控制事务中断和
+  Active/Passive 真实 TCP 控制平面测试。
 
 [Unreleased]: https://github.com/CSJ608/SecsFrame/compare/main...HEAD
