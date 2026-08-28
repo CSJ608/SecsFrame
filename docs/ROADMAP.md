@@ -18,15 +18,14 @@
 - [x] 显式 T5 固定重连节流、T8 接收进展监视和跨会话旧回调隔离。
 - [x] 最小公共连接外观、显式 T3/T5/T6/T7/T8 配置、动态消息事件与
   确定的取消/释放语义。
+- [x] 使用 nuget.org 官方 Secs4Net 3.1.0 的 Active/Passive、Select、
+  双方 Linktest 和双方 Primary/Secondary 跨实现测试。
 - [ ] 使用授权 E37/E37.1 核对 T5/T8 默认值与精确启停边界。
-- Host、Equipment 双角色回环集成测试，以及与 nuget.org 官方 secs4net
-  包的互操作测试。
+- [ ] Host、Equipment 双角色能力及对应回环集成测试。
 
-阶段 1 的下一最小切片是跨实现互操作夹具：通过中央包管理固定
-nuget.org 官方 secs4net 包版本，覆盖 Select、Linktest 和
-Primary/Secondary。不得引用、构建或链接本地 secs4net 源码 checkout。
-随后根据互操作结果收敛公共诊断模型。任何标准默认值和完整合规结论都
-依赖团队合法获得的 E37/E37.1 副本与一致性测试。
+阶段 1 的下一最小切片是根据跨实现证据收敛公共诊断模型，同时继续跟踪
+StreamFrame #38/#39 的正式包发布并准备等价迁移。任何标准默认值和完整
+合规结论都依赖团队合法获得的 E37/E37.1 副本与一致性测试。
 
 ## 阶段 2：GEM 通用能力
 

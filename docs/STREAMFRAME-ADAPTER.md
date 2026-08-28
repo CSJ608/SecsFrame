@@ -5,9 +5,9 @@
 SecsFrame 当前依赖 StreamFrame 2.2.0。以下上游能力仍在跟踪：
 
 - [StreamFrame #38](https://github.com/CSJ608/StreamFrame/issues/38)：
-  未完成帧超时；
+  未完成帧超时已经合入上游 <code>main</code>，但尚未进入正式包；
 - [StreamFrame #39](https://github.com/CSJ608/StreamFrame/issues/39)：
-  会话感知的发送确认与消息上下文。
+  会话感知的发送确认与消息上下文正在实现。
 
 StreamFrame 现有 <code>SendAsync</code> 在消息进入连接级队列后完成，队列
 会跨 TCP 重连保留；<code>GetMessages</code> 也是跨重连的稳定消息流。
@@ -83,7 +83,7 @@ T8 到期关闭。
 
 ## 替换条件
 
-当 #38/#39 发布稳定 API 后：
+当 #38/#39 都发布稳定 NuGet API 后：
 
 1. 运行现有会话、发送确认、迟到消息和超时测试向量验证语义等价；
 2. 用原生 Session ID、发送完成任务和未完成帧超时替换内部回调适配；
