@@ -3,4 +3,7 @@ using System.Runtime.InteropServices;
 namespace SecsFrame;
 
 [StructLayout(LayoutKind.Sequential)]
-internal readonly record struct HsmsTransportSessionId(long Value);
+internal readonly record struct HsmsTransportSessionId(long Value)
+{
+    public bool IsValid => Value > 0;
+}

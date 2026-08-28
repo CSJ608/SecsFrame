@@ -23,9 +23,11 @@
 
 当前代码覆盖第一阶段的 HSMS 线上帧基础、完整的 SECS-II Item
 动态数据模型，以及动态消息到 HSMS Data Message Payload 的严格二进制
-编解码。Item 用法与边界见
+编解码。内部 StreamFrame 适配器还提供会话绑定、整帧实际写出确认和
+未完成帧超时，供后续状态机与事务层使用。Item 用法与边界见
 [docs/SECS-II-ITEMS.md](docs/SECS-II-ITEMS.md)，消息集成见
-[docs/SECS-MESSAGES.md](docs/SECS-MESSAGES.md)，整体路线图见
+[docs/SECS-MESSAGES.md](docs/SECS-MESSAGES.md)，传输适配边界见
+[docs/STREAMFRAME-ADAPTER.md](docs/STREAMFRAME-ADAPTER.md)，整体路线图见
 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
 ## 动态 Item

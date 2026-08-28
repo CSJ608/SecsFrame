@@ -50,7 +50,19 @@ TCP `Connected` 不等于 HSMS `Selected`。Host/Equipment 角色也不等于 Ac
 
 HSMS 会话切换后，旧会话的控制请求、数据事务和等待中的应答全部失效。底层发送必须能绑定会话，并在 Socket 写完后才报告成功。
 
-StreamFrame 尚未提供该高级语义时，SecsFrame 通过内部传输端口隔离适配代码；公共 API 不暴露临时队列或回调约定。
+<code>IHsmsTransport</code> 使用单一事件流按 Session ID 报告会话打开、
+帧到达和会话关闭。<code>StreamFrameHsmsTransport</code> 已在内部实现：
+
+- 每次 TCP Connected 生成单调递增、不可复用的 Session ID；
+- 收到的帧在 codec 解码时绑定 Session ID，迟到消费不会被标成新会话；
+- 发送信封在编码前再次校验 Session ID，旧会话消息不会上线；
+- 同一时间只向 StreamFrame 提交一帧，并根据 RawBytesSent 的实际分片
+  累计确认，整帧写完后才完成发送；
+- 原始接收字节独立跟踪长度前缀和剩余 Payload，仅有未完成帧时运行计时器。
+
+这些能力隔离 StreamFrame #38/#39 尚未提供的高级语义，不进入公共 API。
+上游支持后只替换 <code>IHsmsTransport</code> 实现。详细失效模式与替换
+条件见 [STREAMFRAME-ADAPTER.md](STREAMFRAME-ADAPTER.md)。
 
 ### 严格与兼容分离
 

@@ -4,7 +4,9 @@ namespace SecsFrame;
 // session-aware StreamFrame adapter must provide exactly these semantics.
 internal interface IHsmsTransport : IAsyncDisposable
 {
-    IAsyncEnumerable<HsmsTransportFrame> ReceiveAsync(CancellationToken cancellationToken);
+    void Start(CancellationToken cancellationToken);
+
+    IAsyncEnumerable<HsmsTransportEvent> GetEventsAsync(CancellationToken cancellationToken);
 
     ValueTask SendAsync(
         HsmsTransportSessionId sessionId,
