@@ -5,7 +5,8 @@
 <code>SecsFrame.Gem</code> 是只依赖 <code>SecsFrame</code> 的独立程序集。
 当前切片提供 Host/Equipment 两侧的通讯建立、在线/离线、状态变量读取、
 设备常量读取、应用托管时钟、报告定义、事件链接和 Collection Event，
-以及最小报警通知链路，不把 GEM 状态或消息目录放入 HSMS 状态机。
+以及最小报警通知与远程命令链路，不把 GEM 状态或消息目录放入 HSMS
+状态机。
 
 <code>GemHostServices</code> 依赖 <code>SecsHost</code>；
 <code>GemEquipmentServices</code> 依赖 <code>SecsEquipment</code>。服务不拥有
@@ -31,6 +32,7 @@
 | 事件链接 | S2F35 | S2F36 |
 | Collection Event | S6F11 | S6F12 |
 | 报警通知 | S5F1 | S5F2 |
+| 远程命令 | S2F41 | S2F42 |
 
 这张表描述仓库自己的默认配置，不是复制的 SEMI 规范表，也不表示已经
 核对 E30 的必选能力、状态条件、数据项定义、报告生命周期或应答枚举。
@@ -113,6 +115,24 @@ Host 使用 <code>RegisterAlarmNotificationHandler</code> 注册单一可释放
 取消语义与 Collection Event 处理器一致。本切片不包含报警目录查询、
 启停/屏蔽、历史、持久化或基于 GEM 状态的发送门控。
 
+## 远程命令
+
+Host 使用 <code>GemRemoteCommand</code> 携带动态命令标识和有序参数，再
+通过 <code>ExecuteRemoteCommandAsync</code> 发起请求。命令、参数名称和
+参数值均保持为任意非 null <code>SecsItem</code>；参数名称必须唯一，值可
+包含嵌套 List。库不把现场命令限制为预生成枚举或 ASCII 字符串。
+
+Equipment 使用 <code>RegisterRemoteCommandHandler</code> 注册单一可释放
+处理器。处理器返回 <code>GemRemoteCommandResult</code>，其中包含一个原始
+整体完成码和有序参数结果；每个参数结果保留动态名称与原始单字节代码。
+Host 返回完整结果，不把非零代码折叠成异常，也不解释代码枚举。没有处理器
+时 Equipment 使用 profile 的失败应答值和空参数结果立即回复。
+
+处理器在锁外执行，注册快照、释放、异常和取消语义与报警处理器一致。当前
+切片只要求请求参数名和结果参数名各自唯一，不推断结果必须覆盖哪些请求
+参数。本切片不包含命令目录、参数 Schema、权限、排队、重试、幂等策略、
+执行历史或基于 GEM 状态的命令门控。
+
 ## 严格失败边界
 
 当前实现严格要求：
@@ -127,13 +147,19 @@ Host 使用 <code>RegisterAlarmNotificationHandler</code> 注册单一可释放
   的标识和值列表形状必须完整且标识不能产生歧义；
 - 报警通知是三元素 List，代码必须是恰好一个 Binary 字节，文本必须为
   ASCII，报警标识保持为任意非 null 动态 Item；
+- 远程命令请求是命令标识和参数列表组成的二元素 List，每个参数是名称与
+  值组成的二元素 List；回复是整体单字节代码和参数结果列表组成的二元素
+  List，每个参数结果必须包含唯一名称和单字节 Binary 代码；
 - 报告配置请求和 Collection Event 必须设置 W-Bit，Secondary 的消息对和
-  应答字节必须与 profile 匹配；报警通知遵循相同要求。
+  应答字节必须与 profile 匹配；报警通知遵循相同要求；
+- 远程命令必须设置 W-Bit 且 Secondary 消息对完全匹配；整体和参数结果码
+  保持原始字节，不限制为 profile 的成功/失败两个值。
 
 畸形输入和提供器失败会作为异常返回应用事件循环；语义有效但引用未知变量
 或报告的配置使用失败应答拒绝。本切片尚未实现自动 S9Fx、错误 Secondary、
-通讯建立策略拒绝、状态切换策略、报警目录/启停/历史、远程命令或完整
-GEM 错误恢复，这些行为不能从当前 API 推断为标准合规。
+通讯建立策略拒绝、状态切换策略、报警目录/启停/历史、
+命令目录/权限/调度或完整 GEM 错误恢复，这些行为不能从当前 API 推断为
+标准合规。
 
 ## 标准与验证边界
 
@@ -141,11 +167,12 @@ GEM 错误恢复，这些行为不能从当前 API 推断为标准合规。
 副本核对消息条件、COMMACK/ONLACK/OFLACK/TIACK 语义、MDLN 条件结构、
 空 SVID/ECID 列表行为、报告定义与链接生命周期、Collection Event 数据
 结构和应答、报警通知结构与代码位语义、时间格式选择、状态转换和错误
-响应。不得把标准正文、消息表、状态图或 Schema 提交仓库。完整版本和版权
-边界见
+响应，以及远程命令结构、整体/参数结果代码语义。不得把标准正文、消息表、
+状态图或 Schema 提交仓库。完整版本和版权边界见
 [STANDARDS.md](STANDARDS.md)。
 
 当前证据包括三目标框架的严格输入测试，以及 Host Active / Equipment
 Passive 真实 TCP 下的双向通讯建立、上下线、异构动态标识、报告定义、
 事件链接、Collection Event 嵌套值与空报告、报警通知接受/拒绝、配置/事件
-拒绝、时钟读写和 Linktest。它们是独立工程验证，不是 SEMI 一致性认证。
+拒绝、远程命令动态参数与结果、无处理器拒绝、时钟读写和 Linktest。它们
+是独立工程验证，不是 SEMI 一致性认证。

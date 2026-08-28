@@ -69,6 +69,58 @@ public sealed class GemEquipmentServicesTests
     }
 
     [Fact]
+    public async Task Remote_command_vectors_require_w_bit_and_unique_parameters()
+    {
+        await using var endpoint = new SecsEquipment(
+            CreateOptions(GetFreePort(), HsmsConnectionMode.Active));
+        using var services = new GemEquipmentServices(
+            endpoint,
+            new GemIdentity("EQ-01", "1.0"),
+            new TestGemClock(Epoch));
+        var body = SecsItem.List(
+            SecsItem.Ascii("START"),
+            SecsItem.List(
+                SecsItem.List(
+                    SecsItem.Ascii("SPEED"),
+                    SecsItem.U2(10))));
+
+        await Assert.ThrowsAsync<GemProtocolException>(() => DispatchAsync(
+            services,
+            new SecsMessage(2, 41, rootItem: body))).ConfigureAwait(true);
+        await Assert.ThrowsAsync<GemProtocolException>(() => DispatchAsync(
+            services,
+            new SecsMessage(2, 41, true, SecsItem.List())))
+            .ConfigureAwait(true);
+        await Assert.ThrowsAsync<GemProtocolException>(() => DispatchAsync(
+            services,
+            new SecsMessage(
+                2,
+                41,
+                true,
+                SecsItem.List(
+                    SecsItem.Ascii("START"),
+                    SecsItem.List(
+                        SecsItem.List(SecsItem.Ascii("SPEED")))))))
+            .ConfigureAwait(true);
+        await Assert.ThrowsAsync<GemProtocolException>(() => DispatchAsync(
+            services,
+            new SecsMessage(
+                2,
+                41,
+                true,
+                SecsItem.List(
+                    SecsItem.Ascii("START"),
+                    SecsItem.List(
+                        SecsItem.List(
+                            SecsItem.Ascii("SPEED"),
+                            SecsItem.U2(10)),
+                        SecsItem.List(
+                            SecsItem.Ascii("SPEED"),
+                            SecsItem.U2(20)))))))
+            .ConfigureAwait(true);
+    }
+
+    [Fact]
     public async Task Dynamic_registration_is_exact_disposable_and_replaceable()
     {
         await using var endpoint = new SecsEquipment(
@@ -119,6 +171,32 @@ public sealed class GemEquipmentServicesTests
                                 SecsItem.U4(2),
                                 SecsItem.U4(2))))))))
             .ConfigureAwait(true);
+    }
+
+    [Fact]
+    public async Task Remote_command_handler_is_exact_disposable_and_replaceable()
+    {
+        await using var endpoint = new SecsEquipment(
+            CreateOptions(GetFreePort(), HsmsConnectionMode.Active));
+        using var services = new GemEquipmentServices(
+            endpoint,
+            new GemIdentity("EQ-01", "1.0"),
+            new TestGemClock(Epoch));
+        GemRemoteCommandHandler handler = static (_, _) =>
+            new ValueTask<GemRemoteCommandResult>(
+                new GemRemoteCommandResult(
+                    0,
+                    Array.Empty<GemRemoteCommandParameterResult>()));
+
+        var first = services.RegisterRemoteCommandHandler(handler);
+        Assert.Throws<InvalidOperationException>(() =>
+            services.RegisterRemoteCommandHandler(handler));
+        first.Dispose();
+        first.Dispose();
+        using var replacement = services.RegisterRemoteCommandHandler(handler);
+        services.Dispose();
+        Assert.Throws<ObjectDisposedException>(() =>
+            services.RegisterRemoteCommandHandler(handler));
     }
 
     private static Task<bool> DispatchAsync(

@@ -38,4 +38,7 @@ public enum GemOperation
 
     /// <summary>Send or handle an alarm notification.</summary>
     AlarmNotification,
+
+    /// <summary>Send or handle a remote command.</summary>
+    RemoteCommand,
 }

@@ -248,6 +248,95 @@ internal static class GemMessageCodec
             RequireAscii(body[2], operation, "text"));
     }
 
+    internal static SecsItem EncodeRemoteCommand(GemRemoteCommand command)
+    {
+        if (command is null)
+            throw new ArgumentNullException(nameof(command));
+
+        var parameters = new SecsItem[command.Parameters.Count];
+        for (var index = 0; index < command.Parameters.Count; index++)
+        {
+            var parameter = command.Parameters[index];
+            parameters[index] = SecsItem.List(parameter.Name, parameter.Value);
+        }
+
+        return SecsItem.List(command.Command, SecsItem.List(parameters));
+    }
+
+    internal static GemRemoteCommand DecodeRemoteCommand(SecsItem? root)
+    {
+        const string operation = "remote-command request";
+        var body = RequireList(root, 2, operation);
+        var encoded = DecodeList(body[1], operation);
+        var parameters = new GemRemoteCommandParameter[encoded.Count];
+        var names = new HashSet<SecsItem>();
+        for (var index = 0; index < encoded.Count; index++)
+        {
+            var fields = RequireList(encoded[index], 2, operation);
+            if (!names.Add(fields[0]))
+            {
+                throw new GemProtocolException(
+                    $"The {operation} contains duplicate parameter name at index {index}.");
+            }
+
+            parameters[index] = new GemRemoteCommandParameter(
+                fields[0],
+                fields[1]);
+        }
+
+        return new GemRemoteCommand(body[0], parameters);
+    }
+
+    internal static SecsItem EncodeRemoteCommandResult(
+        GemRemoteCommandResult result)
+    {
+        if (result is null)
+            throw new ArgumentNullException(nameof(result));
+
+        var parameters = new SecsItem[result.ParameterResults.Count];
+        for (var index = 0; index < result.ParameterResults.Count; index++)
+        {
+            var parameter = result.ParameterResults[index];
+            parameters[index] = SecsItem.List(
+                parameter.Name,
+                SecsItem.Binary(parameter.Acknowledgement));
+        }
+
+        return SecsItem.List(
+            SecsItem.Binary(result.Acknowledgement),
+            SecsItem.List(parameters));
+    }
+
+    internal static GemRemoteCommandResult DecodeRemoteCommandResult(
+        SecsItem? root)
+    {
+        const string operation = "remote-command reply";
+        var body = RequireList(root, 2, operation);
+        var encoded = DecodeList(body[1], operation);
+        var parameters = new GemRemoteCommandParameterResult[encoded.Count];
+        var names = new HashSet<SecsItem>();
+        for (var index = 0; index < encoded.Count; index++)
+        {
+            var fields = RequireList(encoded[index], 2, operation);
+            if (!names.Add(fields[0]))
+            {
+                throw new GemProtocolException(
+                    $"The {operation} contains duplicate parameter-result name " +
+                    $"at index {index}.");
+            }
+
+            parameters[index] = new GemRemoteCommandParameterResult(
+                fields[0],
+                RequireBinaryByte(
+                    fields[1],
+                    $"remote-command parameter result at index {index}"));
+        }
+
+        return new GemRemoteCommandResult(
+            RequireBinaryByte(body[0], "remote-command acknowledgement"),
+            parameters);
+    }
+
     internal static SecsItem EncodeClock(DateTimeOffset value, GemClockCodec codec)
         => SecsItem.Ascii(codec.Encode(value));
 
