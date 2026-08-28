@@ -26,11 +26,14 @@
 编解码。内部 StreamFrame 适配器还提供会话绑定、整帧实际写出确认和
 未完成帧超时。Active/Passive 共用的内部 HSMS-SS 状态机已经覆盖 TCP
 会话、Select、Linktest、Reject、Deselect、Separate、T6/T7 和 Selected
-数据门控；T3 数据事务仍待实现。Item 用法与边界见
+数据门控。内部数据事务 actor 进一步提供实际写出后启动的 T3、复合事务
+键关联、入站回复和会话失效隔离。Item 用法与边界见
 [docs/SECS-II-ITEMS.md](docs/SECS-II-ITEMS.md)，消息集成见
 [docs/SECS-MESSAGES.md](docs/SECS-MESSAGES.md)，传输适配边界见
 [docs/STREAMFRAME-ADAPTER.md](docs/STREAMFRAME-ADAPTER.md)，状态机边界见
 [docs/HSMS-SESSION-STATE-MACHINE.md](docs/HSMS-SESSION-STATE-MACHINE.md)，
+数据事务边界见
+[docs/HSMS-DATA-TRANSACTIONS.md](docs/HSMS-DATA-TRANSACTIONS.md)，
 整体路线图见
 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
