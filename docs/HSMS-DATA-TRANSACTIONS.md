@@ -86,8 +86,12 @@ Active/Passive 双端真实 TCP 回环另行覆盖 Select 后的 Primary/Seconda
 
 ## 标准核对边界
 
-实现追踪 SEMI E5-0725、E37-0222 与 E37.1-0819。发布公共事务 API 前，
-仍须使用团队合法获得的版本核对 Primary/Secondary 定义、W-Bit 与
-Function 约束、T3 的精确启停、SxF0/S9Fx 对事务的影响、System Bytes
-分配规则及 Reject 后处理。仓库不得提交标准正文、状态表或由付费材料
-机械转换的测试资料，也不据当前工程测试声明完整合规。
+实现追踪 SEMI E5-0725、E37-0222 与 E37.1-0819。扩大公共事务 API 或
+声明合规前，仍须使用团队合法获得的版本核对 Primary/Secondary 定义、
+W-Bit 与 Function 约束、T3 的精确启停、SxF0/S9Fx 对事务的影响、
+System Bytes 分配规则及 Reject 后处理。仓库不得提交标准正文、状态表
+或由付费材料机械转换的测试资料，也不据当前工程测试声明完整合规。
+
+<code>HsmsDataTransactionManager</code> 仍是内部 actor；公共调用方通过
+<code>HsmsConnection</code> 使用其动态发送、入站回复和事件能力。公共
+生命周期与取消语义见 [HSMS-CONNECTION.md](HSMS-CONNECTION.md)。

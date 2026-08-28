@@ -117,6 +117,12 @@ internal sealed class HsmsDataTransactionManager : IAsyncDisposable
             throw new ArgumentNullException(nameof(incoming));
         if (secondary is null)
             throw new ArgumentNullException(nameof(secondary));
+        if (!incoming.IsOwnedBy(this))
+        {
+            throw new InvalidOperationException(
+                "The incoming data message belongs to another HSMS connection.");
+        }
+
         if (!incoming.DataMessage.Message.ReplyExpected)
         {
             throw new InvalidOperationException(
@@ -350,6 +356,7 @@ internal sealed class HsmsDataTransactionManager : IAsyncDisposable
         }
 
         var incoming = new HsmsIncomingDataMessage(
+            this,
             sessionEvent.SessionId,
             dataMessage);
         _events.Writer.TryWrite(

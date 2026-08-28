@@ -42,5 +42,10 @@
   StreamFrame 重试间隔并关闭指数退避，Passive 监听重试保持独立。
 - 增加按接收进展与会话代次隔离的 T8 监视、专用超时异常，以及部分长度
   头、部分 Payload、陈旧回调、替换会话和真实 TCP 超时测试。
+- 增加公共 <code>HsmsConnection</code> 与不可变
+  <code>HsmsConnectionOptions</code>，组合动态消息收发、Selected 等待、
+  单消费者事件流、入站一次性回复和控制命令。
+- 增加公共 API 选项边界、生命周期、等待/事务取消和 Active/Passive
+  双端真实 TCP 往返测试；入站回复令牌绑定原连接与原运输会话。
 
 [Unreleased]: https://github.com/CSJ608/SecsFrame/compare/main...HEAD
