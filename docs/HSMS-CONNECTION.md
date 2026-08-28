@@ -80,6 +80,12 @@ var secondary = await connection.SendAsync(
 - <code>ControlMessageReceived</code>：未被当前控制或数据事务认领的帧；
 - <code>DataMessageDecodeFailed</code>：原始帧和严格解码错误。
 
+带错误的状态事件和解码失败事件还会提供可选
+<code>HsmsDiagnostic</code>，用于按稳定代码、层级、操作与计时器处理，
+无需解析异常消息。调用任务抛出的异常可通过
+<code>HsmsDiagnostic.Classify</code> 使用同一分类。完整契约和原始帧的
+数据安全边界见 [HSMS-DIAGNOSTICS.md](HSMS-DIAGNOSTICS.md)。
+
 入站消息只有 <code>ReplyExpected</code> 为真时可以回复。回复自动复制原
 协议 Session ID 与 System Bytes，并绑定原 transport session；开始回复
 后令牌不可再次使用，也不会在替换连接上重放。
@@ -93,9 +99,10 @@ var secondary = await connection.SendAsync(
 - Deselect、Separate、断线、替换会话或释放会结束绑定旧会话的等待；
 - 事件枚举的取消只结束该消费者；连接仍须显式释放。
 
-当前具体异常类型仍以 <code>TimeoutException</code>、
+具体异常类型继续以 <code>TimeoutException</code>、
 <code>IOException</code>、<code>OperationCanceledException</code> 和参数/
-状态异常为稳定分类；更细的公共诊断模型将在互操作证据后再收敛。
+状态异常为兼容分类；<code>HsmsDiagnostic</code> 在其上提供更细的机器可读
+上下文。调用方取消、释放和生命周期误用不被分类成协议故障。
 
 ## 验证边界
 

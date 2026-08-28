@@ -64,6 +64,8 @@ public sealed partial class HsmsSessionStateMachineTests
             async () => await linktest.ConfigureAwait(true)).ConfigureAwait(true);
 
         Assert.Equal("T6", error.TimerName);
+        Assert.Equal(HsmsTimer.T6, error.Timer);
+        Assert.Equal(HsmsOperation.Linktest, error.Operation);
         Assert.Equal(HsmsSessionState.Disconnected, machine.State);
     }
 
@@ -262,9 +264,12 @@ public sealed partial class HsmsSessionStateMachineTests
                     81)));
         await WaitUntilAsync(() => transport.SendCount == 3).ConfigureAwait(true);
         transport.CompleteSend(2);
-        await Assert.ThrowsAsync<IOException>(
+        var interrupted = await Assert.ThrowsAsync<
+            HsmsControlTransactionInterruptedException>(
             async () => await linktest.ConfigureAwait(true)).ConfigureAwait(true);
 
+        Assert.Equal(HsmsOperation.Linktest, interrupted.Operation);
+        Assert.Equal(HsmsSessionState.Connected, interrupted.State);
         Assert.Equal(HsmsSessionState.Connected, machine.State);
         Assert.False(timers.Timers[1].IsArmed);
         Assert.Equal(T7, timers.Timers[^1].DueTime);

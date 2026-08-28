@@ -711,7 +711,11 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
             return;
         }
 
-        AbortCurrentSession(new HsmsSessionTimeoutException("T6"));
+        var operation = _pendingSelectSystemBytes is not null
+            ? HsmsOperation.Select
+            : GetControlOperation(_pendingControlCommand!.RequestType);
+        AbortCurrentSession(
+            new HsmsSessionTimeoutException(HsmsTimer.T6, operation));
     }
 
     private void ProcessT7Expired(int generation)
@@ -723,7 +727,10 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
             return;
         }
 
-        AbortCurrentSession(new HsmsSessionTimeoutException("T7"));
+        AbortCurrentSession(
+            new HsmsSessionTimeoutException(
+                HsmsTimer.T7,
+                HsmsOperation.Select));
     }
 
     private void ProcessSeparateRequested(
@@ -957,8 +964,9 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
             else
             {
                 pending.Completion.TrySetException(
-                    new IOException(
-                        $"{pending.RequestType} was interrupted because the HSMS session was deselected."));
+                    new HsmsControlTransactionInterruptedException(
+                        GetControlOperation(pending.RequestType),
+                        HsmsSessionState.Connected));
             }
         }
     }
@@ -988,6 +996,17 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
                 nameof(purpose),
                 purpose,
                 "The send purpose is not a control request."),
+        };
+
+    private static HsmsOperation GetControlOperation(
+        HsmsMessageType requestType)
+        => requestType switch
+        {
+            HsmsMessageType.SelectRequest => HsmsOperation.Select,
+            HsmsMessageType.LinktestRequest => HsmsOperation.Linktest,
+            HsmsMessageType.DeselectRequest => HsmsOperation.Deselect,
+            HsmsMessageType.SeparateRequest => HsmsOperation.Separate,
+            _ => HsmsOperation.None,
         };
 
     private void AbortCurrentSession(Exception error)

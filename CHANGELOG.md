@@ -51,5 +51,9 @@
   由中央包管理固定版本且只从 nuget.org 还原，不引用本地源码 checkout。
 - 增加双方 Active/Passive、Select、双方 Linktest、双方
   Primary/Secondary 及嵌套 Item 边界值的真实 TCP 跨实现测试。
+- 增加公共 <code>HsmsDiagnostic</code> 结构化诊断模型，在保留原异常的
+  同时分类运输、协议、会话、事务、T3/T6/T7/T8 和解码故障。
+- 连接状态与解码失败事件公开可选诊断；操作异常可显式分类，调用方取消、
+  释放和生命周期误用不会被误报为协议故障。
 
 [Unreleased]: https://github.com/CSJ608/SecsFrame/compare/main...HEAD

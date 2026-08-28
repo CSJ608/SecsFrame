@@ -200,6 +200,7 @@ public sealed class HsmsConnectionTests
         Assert.Null(selected.IncomingMessage);
         Assert.Null(selected.Frame);
         Assert.Null(selected.Error);
+        Assert.Null(selected.Diagnostic);
         Assert.Equal(HsmsSessionState.Selected, passive.State);
         Assert.Equal(HsmsSessionState.Selected, active.State);
     }
