@@ -48,6 +48,25 @@ public sealed class HsmsMessageHeaderTests
     }
 
     [Fact]
+    public void Reject_header_round_trips_rejected_SType_and_reason()
+    {
+        var expected = new byte[]
+        {
+            0xFF, 0xFF, 0x05, 0x03, 0x00, 0x07, 0x01, 0x02, 0x03, 0x04,
+        };
+        var header = HsmsMessageHeader.CreateReject(
+            systemBytes: 0x01020304,
+            rejectedMessageType: (byte)HsmsMessageType.LinktestRequest,
+            reason: (byte)HsmsRejectReason.TransactionNotOpen);
+
+        Span<byte> encoded = stackalloc byte[HsmsMessageHeader.EncodedSize];
+        header.Encode(encoded);
+
+        Assert.Equal(expected, encoded.ToArray());
+        Assert.Equal(header, HsmsMessageHeader.Decode(encoded));
+    }
+
+    [Fact]
     public void Stream_number_must_fit_seven_bits()
     {
         Assert.Throws<ArgumentOutOfRangeException>(

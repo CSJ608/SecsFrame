@@ -88,9 +88,16 @@ TCP SessionOpened
 T7 从 TCP 会话打开后运行，到 Selected 时取消。Active 的 Select Request
 只有在 <code>IHsmsTransport.SendAsync</code> 确认完整线上帧实际写出后
 才启动 T6。Select Response 必须匹配等待中的 System Bytes。状态机只在
-Selected 转发数据消息；提前到达的数据、非法控制头和意外响应会关闭当前
-Session ID，不会影响替换会话。详细行为与未实现边界见
+Selected 转发数据消息；提前到达的数据、可识别的不支持类型和意外响应
+会生成 Reject，不能安全回应的畸形控制头才关闭当前 Session ID。这些行为
+不会影响替换会话。详细行为与未实现边界见
 [HSMS-SESSION-STATE-MACHINE.md](HSMS-SESSION-STATE-MACHINE.md)。
+
+会话 actor 同时处理 Linktest、Deselect 和 Reject。每个会话只允许一个
+本地主动控制事务；Linktest/Deselect 的 T6 同样从实际写出后开始，响应
+必须匹配类型与 System Bytes。Deselect 成功回到 Connected 并重启 T7。
+无法由会话层认领的 Reject 作为 <code>ControlMessageReceived</code>
+事件向上转发，供后续 T3 数据事务管理器关联，不会被静默丢弃。
 
 ### 严格与兼容分离
 

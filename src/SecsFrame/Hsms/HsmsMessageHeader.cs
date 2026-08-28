@@ -85,6 +85,24 @@ public readonly record struct HsmsMessageHeader
         };
     }
 
+    /// <summary>Creates an HSMS Reject Request header.</summary>
+    /// <param name="systemBytes">The transaction identifier copied from the rejected message.</param>
+    /// <param name="rejectedMessageType">The SType of the rejected message.</param>
+    /// <param name="reason">The Reject Request reason byte.</param>
+    public static HsmsMessageHeader CreateReject(
+        uint systemBytes,
+        byte rejectedMessageType,
+        byte reason)
+        => new()
+        {
+            SessionId = ushort.MaxValue,
+            HeaderByte2 = rejectedMessageType,
+            HeaderByte3 = reason,
+            PresentationType = 0,
+            MessageType = HsmsMessageType.RejectRequest,
+            SystemBytes = systemBytes,
+        };
+
     /// <summary>Decodes an HSMS header from exactly ten or more bytes.</summary>
     /// <param name="source">The source bytes.</param>
     public static HsmsMessageHeader Decode(ReadOnlySpan<byte> source)

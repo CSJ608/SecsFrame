@@ -5,7 +5,7 @@ using StreamFrame;
 
 namespace SecsFrame.Tests;
 
-public sealed class HsmsSessionStateMachineTests
+public sealed partial class HsmsSessionStateMachineTests
 {
     private static readonly TimeSpan T6 = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan T7 = TimeSpan.FromSeconds(10);
@@ -250,7 +250,7 @@ public sealed class HsmsSessionStateMachineTests
     }
 
     [Fact]
-    public async Task Unexpected_select_response_closes_session_as_protocol_error()
+    public async Task Unexpected_select_response_sends_transaction_not_open_reject()
     {
         var transport = new FakeHsmsTransport();
         await using var machine = CreateMachine(
@@ -268,10 +268,16 @@ public sealed class HsmsSessionStateMachineTests
                 HsmsMessageHeader.CreateControl(
                     HsmsMessageType.SelectResponse,
                     11)));
-        await WaitUntilAsync(() => transport.CloseCount == 1).ConfigureAwait(true);
+        await WaitUntilAsync(() => transport.SendCount == 2).ConfigureAwait(true);
 
-        Assert.IsType<HsmsProtocolException>(transport.LastCloseError);
-        Assert.Equal(HsmsSessionState.Disconnected, machine.State);
+        AssertControlFrame(
+            transport.GetSentFrame(1),
+            HsmsMessageType.RejectRequest,
+            11,
+            (byte)HsmsRejectReason.TransactionNotOpen,
+            (byte)HsmsMessageType.SelectResponse);
+        Assert.Equal(0, transport.CloseCount);
+        Assert.Equal(HsmsSessionState.Selecting, machine.State);
     }
 
     [Fact]
@@ -287,9 +293,16 @@ public sealed class HsmsSessionStateMachineTests
             rejectedMachine.Start(cancellation.Token);
             rejectedTransport.Open(new HsmsTransportSessionId(1));
             rejectedTransport.Receive(CreateDataFrame());
-            await WaitUntilAsync(() => rejectedTransport.CloseCount == 1)
+            await WaitUntilAsync(() => rejectedTransport.SendCount == 1)
                 .ConfigureAwait(true);
-            Assert.IsType<HsmsProtocolException>(rejectedTransport.LastCloseError);
+            AssertControlFrame(
+                rejectedTransport.GetSentFrame(0),
+                HsmsMessageType.RejectRequest,
+                1,
+                (byte)HsmsRejectReason.EntityNotSelected,
+                (byte)HsmsMessageType.DataMessage);
+            Assert.Equal(0, rejectedTransport.CloseCount);
+            Assert.Equal(HsmsSessionState.Connected, rejectedMachine.State);
         }
 
         var selectedTransport = new FakeHsmsTransport();
@@ -453,7 +466,7 @@ public sealed class HsmsSessionStateMachineTests
     }
 
     [Fact]
-    public async Task Active_and_passive_streamframe_transports_select_over_tcp()
+    public async Task Active_and_passive_streamframe_transports_run_control_plane_over_tcp()
     {
         var port = GetFreePort();
         var connectionOptions = new StreamConnectionOptions
@@ -490,6 +503,16 @@ public sealed class HsmsSessionStateMachineTests
 
         Assert.Equal(HsmsSessionState.Selected, passive.State);
         Assert.Equal(HsmsSessionState.Selected, active.State);
+
+        await active.LinktestAsync(cancellation.Token).ConfigureAwait(true);
+        Assert.Equal(HsmsSessionState.Selected, passive.State);
+        Assert.Equal(HsmsSessionState.Selected, active.State);
+
+        await active.DeselectAsync(cancellation.Token).ConfigureAwait(true);
+        await WaitUntilAsync(
+            () => passive.State == HsmsSessionState.Connected &&
+                active.State == HsmsSessionState.Connected,
+            TimeSpan.FromSeconds(10)).ConfigureAwait(true);
     }
 
     [Theory]
@@ -554,10 +577,11 @@ public sealed class HsmsSessionStateMachineTests
         HsmsFrame frame,
         HsmsMessageType messageType,
         uint systemBytes,
-        byte status)
+        byte status,
+        byte headerByte2 = 0)
     {
         Assert.Equal(ushort.MaxValue, frame.Header.SessionId);
-        Assert.Equal(0, frame.Header.HeaderByte2);
+        Assert.Equal(headerByte2, frame.Header.HeaderByte2);
         Assert.Equal(status, frame.Header.HeaderByte3);
         Assert.Equal(0, frame.Header.PresentationType);
         Assert.Equal(messageType, frame.Header.MessageType);
