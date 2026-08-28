@@ -10,12 +10,12 @@
 
 - [x] 完整 SECS-II Item 类型、嵌套 List 和严格二进制编解码。
 - [x] 动态 SecsMessage、可选单根 Item 与 HSMS Data Message Payload 编解码。
-- [x] StreamFrame #38/#39 的内部会话绑定、写出确认和未完成帧超时适配。
+- [x] 迁移到 StreamFrame 2.3.0 原生会话绑定、写出确认和未完成帧超时。
 - [x] Active/Passive 共用状态机的 Select/Select Response、Separate、
   T6/T7、System Bytes 关联和会话失效处理。
 - [x] Linktest、Reject、Deselect 控制消息与对应 T6 分支。
 - [x] Selected 数据发送、Primary/Secondary 关联、T3 与入站同事务回复。
-- [x] 显式 T5 固定重连节流、T8 接收进展监视和跨会话旧回调隔离。
+- [x] 显式 T5 固定重连节流、原生 T8 映射和跨会话故障隔离。
 - [x] 最小公共连接外观、显式 T3/T5/T6/T7/T8 配置、动态消息事件与
   确定的取消/释放语义。
 - [x] 使用 nuget.org 官方 Secs4Net 3.1.0 的 Active/Passive、Select、
@@ -25,8 +25,8 @@
 - [ ] 使用授权 E37/E37.1 核对 T5/T8 默认值与精确启停边界。
 - [x] Host、Equipment 双角色端点及两种 Active/Passive 拓扑的双向回环。
 
-阶段 1 的工程能力已经形成完整基础链路。下一切片进入 GEM 通用行为，同时
-继续跟踪 StreamFrame #38/#39 的正式包发布并准备等价迁移。任何标准默认值
+阶段 1 的工程能力已经形成完整基础链路，StreamFrame #38/#39 的正式包
+迁移与等价测试已经完成。后续切片继续扩展 GEM 通用行为。任何标准默认值
 和完整合规结论都依赖团队合法获得的 E37/E37.1 及相关 GEM 标准副本与
 一致性测试。
 

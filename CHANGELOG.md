@@ -12,9 +12,13 @@
 - 增加全部 Item 格式、长度边界、嵌套 List、分段输入、非法输入和往返协议向量测试。
 - 增加动态 SecsMessage、HSMS Data Message 信封与可选单根 Item 的 Payload 编解码。
 - 增加完整线上帧、无 Body、空 List、分段输入、非法 SType/PType 和消息往返测试。
-- 增加 StreamFrame 内部会话适配器，提供单调 Session ID、会话失效通知和旧会话发送拒绝。
-- 增加基于实际 Socket 写出分片的整帧发送确认，以及可替换计时器驱动的未完成帧超时。
-- 增加发送竞态、迟到接收、超时重置和 StreamFrame 真实 TCP 回环测试。
+- 升级官方 StreamFrame 2.3.0，采用原生单调 Session ID、会话失效通知、
+  会话绑定发送和未完成帧超时，删除 #38/#39 对应的临时回调适配。
+- 发送任务由 StreamFrame 在整帧写入本机 Socket 后完成，旧会话消息不会
+  跨重连重放；T8 FrameError 映射为保留 transport Session ID 的诊断。
+- T8 配置改为要求可由正整毫秒精确表示且不超过 <code>int.MaxValue</code>
+  毫秒；亚毫秒、截断和溢出输入在公共选项边界立即拒绝。
+- 增加发送竞态、迟到接收、原生 T8 映射和 StreamFrame 真实 TCP 回环测试。
 - 增加 Active/Passive 共用的内部 HSMS-SS Select/Separate 状态机，
   分离 TCP Connected、Selecting 与 Selected 状态。
 - 增加从整帧实际写出后启动的 T6、连接建立后启动的 T7、System Bytes
@@ -40,8 +44,8 @@
   Active/Passive 双端真实 TCP 数据事务测试。
 - 增加显式 HSMS T5/T8 运输配置；Active 连接把 T5 无损映射为固定
   StreamFrame 重试间隔并关闭指数退避，Passive 监听重试保持独立。
-- 增加按接收进展与会话代次隔离的 T8 监视、专用超时异常，以及部分长度
-  头、部分 Payload、陈旧回调、替换会话和真实 TCP 超时测试。
+- 增加 StreamFrame 原生接收进展 T8、专用超时异常及关闭原因关联，覆盖
+  部分长度头、替换会话和真实 TCP 超时测试。
 - 增加公共 <code>HsmsConnection</code> 与不可变
   <code>HsmsConnectionOptions</code>，组合动态消息收发、Selected 等待、
   单消费者事件流、入站一次性回复和控制命令。

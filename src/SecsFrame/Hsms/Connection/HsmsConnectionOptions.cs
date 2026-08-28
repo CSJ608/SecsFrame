@@ -17,7 +17,7 @@ public sealed class HsmsConnectionOptions
     /// <param name="t5">The Active connection retry interval.</param>
     /// <param name="t6">The control transaction reply timeout.</param>
     /// <param name="t7">The selection timeout after TCP connection.</param>
-    /// <param name="t8">The incomplete-message receive timeout.</param>
+    /// <param name="t8">The positive whole-millisecond incomplete-message receive timeout.</param>
     public HsmsConnectionOptions(
         IPAddress ipAddress,
         int port,
@@ -59,7 +59,7 @@ public sealed class HsmsConnectionOptions
         ValidateT5(t5, nameof(t5));
         ValidatePositive(t6, nameof(t6), "T6");
         ValidatePositive(t7, nameof(t7), "T7");
-        ValidatePositive(t8, nameof(t8), "T8");
+        ValidateStreamFrameMilliseconds(t8, nameof(t8), "T8");
 
         Port = port;
         ConnectionMode = connectionMode;
@@ -116,13 +116,21 @@ public sealed class HsmsConnectionOptions
         TimeSpan value,
         string parameterName)
     {
-        ValidatePositive(value, parameterName, "T5");
+        ValidateStreamFrameMilliseconds(value, parameterName, "T5");
+    }
+
+    private static void ValidateStreamFrameMilliseconds(
+        TimeSpan value,
+        string parameterName,
+        string timerName)
+    {
+        ValidatePositive(value, parameterName, timerName);
         if (value.Ticks % TimeSpan.TicksPerMillisecond != 0)
         {
             throw new ArgumentOutOfRangeException(
                 parameterName,
                 value,
-                "T5 must be representable as a whole number of milliseconds.");
+                $"{timerName} must be representable as a whole number of milliseconds.");
         }
 
         var milliseconds = value.Ticks / TimeSpan.TicksPerMillisecond;
@@ -131,7 +139,7 @@ public sealed class HsmsConnectionOptions
             throw new ArgumentOutOfRangeException(
                 parameterName,
                 value,
-                "T5 exceeds the supported connection retry-delay range.");
+                $"{timerName} exceeds the supported StreamFrame millisecond range.");
         }
     }
 }

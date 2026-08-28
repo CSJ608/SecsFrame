@@ -17,19 +17,19 @@
 
 这些条目只是调查清单，不代表当前实现已经支持。
 
-## 上游能力适配
+## 上游能力集成
 
-StreamFrame #38（未完成帧超时）已经合入上游 <code>main</code>，但尚未
-进入正式 NuGet 版本；#39（会话感知发送确认与消息上下文）正在实现。
-SecsFrame 当前固定使用 StreamFrame 2.2.0，并通过内部
-<code>StreamFrameHsmsTransport</code> 补足对应语义。
+StreamFrame #38（未完成帧超时）与 #39（会话感知发送确认及消息上下文）
+已经随官方 StreamFrame 2.3.0 发布。SecsFrame 固定该 NuGet 版本，并由
+内部 <code>StreamFrameHsmsTransport</code> 使用原生会话 API；此前基于
+原始字节回调、发送信封和自建 Session ID 的临时实现已经删除。
 
 这不是设备兼容模式：
 
 - 不放宽协议输入，也不接受标准严格模式本应拒绝的数据；
 - 不提供默认关闭的厂商开关；
-- 不暴露为公共 API，不形成长期兼容承诺；
-- 上游能力可用并完成等价测试后，直接替换内部实现。
+- 不暴露 StreamFrame 类型为公共 API，不形成跨层兼容承诺；
+- SecsFrame 仅保留 HSMS 关闭原因、异常和事件边界转换。
 
 具体机制、测试证据和已知代价见
 [STREAMFRAME-ADAPTER.md](STREAMFRAME-ADAPTER.md)。

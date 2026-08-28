@@ -37,9 +37,27 @@ internal sealed class HsmsTransportOptions
                 "T8 must be positive.");
         }
 
+        if (t8.Ticks % TimeSpan.TicksPerMillisecond != 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(t8),
+                t8,
+                "T8 must be representable as a whole number of milliseconds.");
+        }
+
+        var t8Milliseconds = t8.Ticks / TimeSpan.TicksPerMillisecond;
+        if (t8Milliseconds > int.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(t8),
+                t8,
+                "T8 exceeds the StreamFrame incomplete-frame timeout range.");
+        }
+
         T5 = t5;
         T8 = t8;
         T5Milliseconds = (int)t5Milliseconds;
+        T8Milliseconds = (int)t8Milliseconds;
     }
 
     public TimeSpan T5 { get; }
@@ -47,4 +65,6 @@ internal sealed class HsmsTransportOptions
     public TimeSpan T8 { get; }
 
     internal int T5Milliseconds { get; }
+
+    internal int T8Milliseconds { get; }
 }
