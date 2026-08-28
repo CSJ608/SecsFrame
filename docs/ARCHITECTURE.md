@@ -74,6 +74,11 @@ API。#38 已合入上游但尚未发布，#39 正在实现；正式包可用后
 修改。Active/Passive 共享状态模型，Host/Equipment 角色不参与连接模式
 判断。
 
+公共 <code>SecsHost</code> 与 <code>SecsEquipment</code> 在连接和动态路由
+之上建立角色组合边界。两者都拥有连接生命周期、事件流、动态发送和
+Primary 处理能力；角色固定但 Active/Passive 仍由独立选项决定。后续 GEM
+能力依赖具体角色类型，不反向污染 HSMS 状态机。
+
 ~~~text
 TCP SessionOpened
         |
