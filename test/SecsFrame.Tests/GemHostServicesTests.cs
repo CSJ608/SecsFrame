@@ -57,6 +57,77 @@ public sealed class GemHostServicesTests
             services.RegisterCollectionEventHandler(handler));
     }
 
+    [Fact]
+    public async Task Alarm_notification_vectors_require_w_bit_and_strict_fields()
+    {
+        await using var endpoint = new SecsHost(CreateOptions());
+        using var services = new GemHostServices(
+            endpoint,
+            new GemIdentity("HOST-01", "1.0"));
+        var validBody = SecsItem.List(
+            SecsItem.Binary(0x81),
+            SecsItem.U2(3001),
+            SecsItem.Ascii("DOOR OPEN"));
+
+        await Assert.ThrowsAsync<GemProtocolException>(() => DispatchAsync(
+            services,
+            new SecsMessage(5, 1, rootItem: validBody))).ConfigureAwait(true);
+        await Assert.ThrowsAsync<GemProtocolException>(() => DispatchAsync(
+            services,
+            new SecsMessage(5, 1, true, SecsItem.List()))).ConfigureAwait(true);
+        await Assert.ThrowsAsync<GemProtocolException>(() => DispatchAsync(
+            services,
+            new SecsMessage(
+                5,
+                1,
+                true,
+                SecsItem.List(
+                    SecsItem.U1(0x81),
+                    SecsItem.U2(3001),
+                    SecsItem.Ascii("DOOR OPEN"))))).ConfigureAwait(true);
+        await Assert.ThrowsAsync<GemProtocolException>(() => DispatchAsync(
+            services,
+            new SecsMessage(
+                5,
+                1,
+                true,
+                SecsItem.List(
+                    SecsItem.Binary(0x81, 0x01),
+                    SecsItem.U2(3001),
+                    SecsItem.Ascii("DOOR OPEN"))))).ConfigureAwait(true);
+        await Assert.ThrowsAsync<GemProtocolException>(() => DispatchAsync(
+            services,
+            new SecsMessage(
+                5,
+                1,
+                true,
+                SecsItem.List(
+                    SecsItem.Binary(0x81),
+                    SecsItem.U2(3001),
+                    SecsItem.U4(42))))).ConfigureAwait(true);
+    }
+
+    [Fact]
+    public async Task Alarm_handler_is_exact_disposable_and_replaceable()
+    {
+        await using var endpoint = new SecsHost(CreateOptions());
+        using var services = new GemHostServices(
+            endpoint,
+            new GemIdentity("HOST-01", "1.0"));
+        GemAlarmNotificationHandler handler = static (_, _) =>
+            new ValueTask<bool>(true);
+
+        var first = services.RegisterAlarmNotificationHandler(handler);
+        Assert.Throws<InvalidOperationException>(() =>
+            services.RegisterAlarmNotificationHandler(handler));
+        first.Dispose();
+        first.Dispose();
+        using var replacement = services.RegisterAlarmNotificationHandler(handler);
+        services.Dispose();
+        Assert.Throws<ObjectDisposedException>(() =>
+            services.RegisterAlarmNotificationHandler(handler));
+    }
+
     private static Task<bool> DispatchAsync(
         GemHostServices services,
         SecsMessage message)

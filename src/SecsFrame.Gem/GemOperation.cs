@@ -35,4 +35,7 @@ public enum GemOperation
 
     /// <summary>Send or handle a Collection Event.</summary>
     CollectionEvent,
+
+    /// <summary>Send or handle an alarm notification.</summary>
+    AlarmNotification,
 }

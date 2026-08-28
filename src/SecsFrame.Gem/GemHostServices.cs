@@ -10,6 +10,7 @@ public sealed class GemHostServices : IDisposable
     private readonly object _gate = new();
 #endif
     private GemCollectionEventRegistration? _collectionEventHandler;
+    private GemAlarmNotificationRegistration? _alarmNotificationHandler;
     private int _disposed;
 
     /// <summary>Creates Host GEM services without taking ownership of the endpoint.</summary>
@@ -30,6 +31,9 @@ public sealed class GemHostServices : IDisposable
             _services.AddRoute(
                 _services.Profile.CollectionEvent,
                 HandleCollectionEventAsync);
+            _services.AddRoute(
+                _services.Profile.AlarmNotification,
+                HandleAlarmNotificationAsync);
         }
         catch
         {
@@ -191,6 +195,30 @@ public sealed class GemHostServices : IDisposable
         }
     }
 
+    /// <summary>Registers the single application alarm-notification handler.</summary>
+    public GemAlarmNotificationRegistration RegisterAlarmNotificationHandler(
+        GemAlarmNotificationHandler handler)
+    {
+        if (handler is null)
+            throw new ArgumentNullException(nameof(handler));
+
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            if (_alarmNotificationHandler is not null)
+            {
+                throw new InvalidOperationException(
+                    "An alarm-notification handler is already registered.");
+            }
+
+            var registration = new GemAlarmNotificationRegistration(
+                handler,
+                UnregisterAlarmNotificationHandler);
+            _alarmNotificationHandler = registration;
+            return registration;
+        }
+    }
+
     /// <summary>
     /// Observes session state and dispatches a registered GEM or application route.
     /// </summary>
@@ -206,7 +234,10 @@ public sealed class GemHostServices : IDisposable
             return;
 
         lock (_gate)
+        {
             _collectionEventHandler = null;
+            _alarmNotificationHandler = null;
+        }
         _services.Dispose();
     }
 
@@ -255,6 +286,38 @@ public sealed class GemHostServices : IDisposable
         {
             if (ReferenceEquals(_collectionEventHandler, registration))
                 _collectionEventHandler = null;
+        }
+    }
+
+    private async ValueTask<SecsMessage?> HandleAlarmNotificationAsync(
+        HsmsPrimaryContext context,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        GemMessageCodec.RequireReplyExpected(context, "alarm notification");
+        var notification = GemMessageCodec.DecodeAlarmNotification(
+            context.Message.RootItem);
+        GemAlarmNotificationHandler? handler;
+        lock (_gate)
+            handler = _alarmNotificationHandler?.Handler;
+
+        var accepted = handler is not null &&
+            await handler(notification, cancellationToken).ConfigureAwait(false);
+        return GemEndpointServices.CreateSecondary(
+            Profile.AlarmNotification,
+            GemMessageCodec.EncodeAcknowledgement(
+                accepted
+                    ? Profile.AcceptedAcknowledgement
+                    : Profile.FailedAcknowledgement));
+    }
+
+    private void UnregisterAlarmNotificationHandler(
+        GemAlarmNotificationRegistration registration)
+    {
+        lock (_gate)
+        {
+            if (ReferenceEquals(_alarmNotificationHandler, registration))
+                _alarmNotificationHandler = null;
         }
     }
 

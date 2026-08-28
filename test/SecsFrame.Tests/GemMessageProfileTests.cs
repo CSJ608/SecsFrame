@@ -28,6 +28,10 @@ public sealed class GemMessageProfileTests
         Assert.Equal(new GemMessagePair(2, 33, 34), profile.DefineReports);
         Assert.Equal(new GemMessagePair(2, 35, 36), profile.LinkEventReports);
         Assert.Equal(new GemMessagePair(6, 11, 12), profile.CollectionEvent);
+        Assert.Equal(new GemMessagePair(5, 1, 2), profile.AlarmNotification);
+        Assert.Equal(
+            new GemMessagePair(5, 1, 2),
+            CreateLegacyCompatibleProfile(profile).AlarmNotification);
         Assert.Equal((byte)0, profile.AcceptedAcknowledgement);
         Assert.Equal((byte)1, profile.FailedAcknowledgement);
         Assert.Equal("2026082801101112", profile.ClockCodec.Encode(value));
@@ -46,6 +50,9 @@ public sealed class GemMessageProfileTests
         Assert.Throws<ArgumentException>(() => CreateProfile(
             baseline,
             collectionEvent: baseline.EstablishCommunication));
+        Assert.Throws<ArgumentException>(() => CreateProfile(
+            baseline,
+            alarmNotification: baseline.EstablishCommunication));
         Assert.Throws<ArgumentException>(() => CreateProfile(
             baseline,
             failedAcknowledgement: baseline.AcceptedAcknowledgement));
@@ -78,12 +85,24 @@ public sealed class GemMessageProfileTests
             new GemEventReportLink(
                 SecsItem.U4(1),
                 new[] { SecsItem.U4(2), SecsItem.U4(2) }));
+        var alarm = new GemAlarmNotification(
+            0x81,
+            SecsItem.U2(3001),
+            "DOOR OPEN");
+        Assert.Equal((byte)0x81, alarm.Code);
+        Assert.Equal(SecsItem.U2(3001), alarm.AlarmId);
+        Assert.Equal("DOOR OPEN", alarm.Text);
+        Assert.Throws<ArgumentNullException>(() =>
+            new GemAlarmNotification(0, null!, string.Empty));
+        Assert.Throws<ArgumentException>(() =>
+            new GemAlarmNotification(0, SecsItem.U2(3001), "报警"));
     }
 
     private static GemMessageProfile CreateProfile(
         GemMessageProfile baseline,
         GemMessagePair? areYouOnline = null,
         GemMessagePair? collectionEvent = null,
+        GemMessagePair? alarmNotification = null,
         byte? failedAcknowledgement = null,
         GemClockCodec? clockCodec = default,
         bool useNullClockCodec = false)
@@ -99,7 +118,26 @@ public sealed class GemMessageProfileTests
             baseline.DefineReports,
             baseline.LinkEventReports,
             collectionEvent ?? baseline.CollectionEvent,
+            alarmNotification ?? baseline.AlarmNotification,
             baseline.AcceptedAcknowledgement,
             failedAcknowledgement ?? baseline.FailedAcknowledgement,
             useNullClockCodec ? null! : clockCodec ?? baseline.ClockCodec);
+
+    private static GemMessageProfile CreateLegacyCompatibleProfile(
+        GemMessageProfile baseline)
+        => new(
+            baseline.EstablishCommunication,
+            baseline.AreYouOnline,
+            baseline.RequestOnline,
+            baseline.RequestOffline,
+            baseline.ReadStatusVariables,
+            baseline.ReadEquipmentConstants,
+            baseline.GetClock,
+            baseline.SetClock,
+            baseline.DefineReports,
+            baseline.LinkEventReports,
+            baseline.CollectionEvent,
+            baseline.AcceptedAcknowledgement,
+            baseline.FailedAcknowledgement,
+            baseline.ClockCodec);
 }

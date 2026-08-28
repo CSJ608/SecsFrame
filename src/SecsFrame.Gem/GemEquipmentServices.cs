@@ -134,6 +134,26 @@ public sealed class GemEquipmentServices : IDisposable
                 "Collection Event reply"));
     }
 
+    /// <summary>Sends one alarm notification to the Host.</summary>
+    public async Task SendAlarmNotificationAsync(
+        GemAlarmNotification notification,
+        CancellationToken cancellationToken = default)
+    {
+        if (notification is null)
+            throw new ArgumentNullException(nameof(notification));
+
+        var response = await _services.SendRequestAsync(
+            Profile.AlarmNotification,
+            GemOperation.AlarmNotification,
+            GemMessageCodec.EncodeAlarmNotification(notification),
+            cancellationToken).ConfigureAwait(false);
+        _services.RequireAccepted(
+            GemOperation.AlarmNotification,
+            GemMessageCodec.DecodeAcknowledgement(
+                response.Message.RootItem,
+                "alarm-notification reply"));
+    }
+
     /// <summary>
     /// Observes session state and dispatches a registered GEM or application route.
     /// </summary>

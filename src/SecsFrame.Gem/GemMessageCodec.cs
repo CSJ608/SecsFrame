@@ -43,14 +43,17 @@ internal static class GemMessageCodec
         => SecsItem.Binary(value);
 
     internal static byte DecodeAcknowledgement(SecsItem? root, string operation)
+        => RequireBinaryByte(root, $"{operation} acknowledgement");
+
+    private static byte RequireBinaryByte(SecsItem? item, string field)
     {
-        if (root is null || root.Format != SecsItemFormat.Binary || root.Count != 1)
+        if (item is null || item.Format != SecsItemFormat.Binary || item.Count != 1)
         {
             throw new GemProtocolException(
-                $"The {operation} body must be one Binary acknowledgement byte.");
+                $"The {field} must be one Binary byte.");
         }
 
-        return root.GetValues<byte>()[0];
+        return item.GetValues<byte>()[0];
     }
 
     internal static SecsItem EncodeIdentifiers(IEnumerable<SecsItem> identifiers)
@@ -223,6 +226,28 @@ internal static class GemMessageCodec
             reports);
     }
 
+    internal static SecsItem EncodeAlarmNotification(
+        GemAlarmNotification notification)
+    {
+        if (notification is null)
+            throw new ArgumentNullException(nameof(notification));
+
+        return SecsItem.List(
+            SecsItem.Binary(notification.Code),
+            notification.AlarmId,
+            SecsItem.Ascii(notification.Text));
+    }
+
+    internal static GemAlarmNotification DecodeAlarmNotification(SecsItem? root)
+    {
+        const string operation = "alarm notification";
+        var body = RequireList(root, 3, operation);
+        return new GemAlarmNotification(
+            RequireBinaryByte(body[0], "alarm-notification code"),
+            body[1],
+            RequireAscii(body[2], operation, "text"));
+    }
+
     internal static SecsItem EncodeClock(DateTimeOffset value, GemClockCodec codec)
         => SecsItem.Ascii(codec.Encode(value));
 
@@ -294,12 +319,15 @@ internal static class GemMessageCodec
         return root.Items;
     }
 
-    private static string RequireAscii(SecsItem item, string operation)
+    private static string RequireAscii(
+        SecsItem item,
+        string operation,
+        string field = "identity value")
     {
         if (item.Format != SecsItemFormat.Ascii)
         {
             throw new GemProtocolException(
-                $"The {operation} identity values must be ASCII.");
+                $"The {operation} {field} must be ASCII.");
         }
 
         return item.GetString();

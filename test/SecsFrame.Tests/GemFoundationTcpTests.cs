@@ -14,6 +14,7 @@ public sealed class GemFoundationTcpTests
         await AssertCommunicationAndOnlineAsync(context).ConfigureAwait(true);
         await AssertDynamicDataAsync(context).ConfigureAwait(true);
         await AssertCollectionEventsAsync(context).ConfigureAwait(true);
+        await AssertAlarmNotificationsAsync(context).ConfigureAwait(true);
         await AssertClockAsync(context).ConfigureAwait(true);
         Assert.Equal(
             context.HostServices.Identity,
@@ -236,6 +237,42 @@ public sealed class GemFoundationTcpTests
         await context.HostServices.SetClockAsync(replacementTime, context.Token)
             .ConfigureAwait(true);
         Assert.Equal(replacementTime.ToUniversalTime(), context.Clock.Value);
+    }
+
+    private static async Task AssertAlarmNotificationsAsync(GemTcpContext context)
+    {
+        var received = new TaskCompletionSource<GemAlarmNotification>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using (context.HostServices.RegisterAlarmNotificationHandler(
+            (notification, cancellationToken) =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                received.TrySetResult(notification);
+                return new ValueTask<bool>(true);
+            }))
+        {
+            await context.EquipmentServices.SendAlarmNotificationAsync(
+                new GemAlarmNotification(
+                    0x81,
+                    SecsItem.Ascii("DOOR-01"),
+                    "DOOR OPEN"),
+                context.Token).ConfigureAwait(true);
+        }
+
+        var notification = await received.Task.ConfigureAwait(true);
+        Assert.Equal((byte)0x81, notification.Code);
+        Assert.Equal(SecsItem.Ascii("DOOR-01"), notification.AlarmId);
+        Assert.Equal("DOOR OPEN", notification.Text);
+
+        var rejected = await Assert.ThrowsAsync<GemRequestRejectedException>(
+            () => context.EquipmentServices.SendAlarmNotificationAsync(
+                new GemAlarmNotification(
+                    0x00,
+                    SecsItem.U2(3001),
+                    "DOOR CLOSED"),
+                context.Token)).ConfigureAwait(true);
+        Assert.Equal(GemOperation.AlarmNotification, rejected.Operation);
+        Assert.Equal((byte)1, rejected.Acknowledgement);
     }
 
     private static async Task PumpAsync(
