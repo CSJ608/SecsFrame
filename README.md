@@ -21,7 +21,29 @@
 | `SecsFrame.Smn` | E173 SMN 日志、文档与消息表示 |
 | `SecsFrame.Sedd` | E172 SEDD 设备接口数据字典 |
 
-当前代码只覆盖第一阶段的 HSMS 线上帧基础。路线图见 [docs/ROADMAP.md](docs/ROADMAP.md)。
+当前代码覆盖第一阶段的 HSMS 线上帧基础，以及完整的 SECS-II Item
+动态数据模型和严格二进制编解码。Item 用法与边界见
+[docs/SECS-II-ITEMS.md](docs/SECS-II-ITEMS.md)，整体路线图见
+[docs/ROADMAP.md](docs/ROADMAP.md)。
+
+## 动态 Item
+
+无需预先声明消息模板即可组合任意 Item 树：
+
+~~~csharp
+var body = SecsItem.List(
+    SecsItem.Ascii("LOT-001"),
+    SecsItem.U4(1001),
+    SecsItem.List(
+        SecsItem.Boolean(true),
+        SecsItem.F8(23.5)));
+
+var codec = new SecsItemCodec();
+~~~
+
+<code>SecsItemCodec</code> 默认严格拒绝非法格式、截断、数值宽度错位、
+非 ASCII 字节、尾随数据和超过资源上限的树。JIS-8 在核心层以原始编码
+字节表示，不猜测现场代码页。
 
 ## 构建
 
@@ -33,3 +55,5 @@ dotnet test SecsFrame.slnx -c Release --no-build
 ## 许可证
 
 [MIT](LICENSE)
+
+实现所跟踪的 SEMI 版本与版权边界见 [docs/STANDARDS.md](docs/STANDARDS.md)。

@@ -18,6 +18,15 @@ E172 SEDD 与 E173 SMN 是可选元数据/表示层，不进入核心通讯路�
 
 线上消息由 Stream、Function、W-Bit 和动态 Item 树表达。消息目录、SML/SMN 文件和代码生成是可选能力，不能成为发送未知或厂商自定义消息的前置条件。
 
+<code>SecsItem</code> 是不可变值对象，覆盖 E5 的全部 Item 格式。List
+保存任意嵌套 Item，数值类型使用明确宽度的 CLR 类型，ASCII 只接受七位
+字符，JIS-8 保留原始编码字节。<code>SecsItemCodec</code> 只负责一个
+完整 Item 树；空 Body 和 Item Body 的选择属于后续
+<code>SecsMessage</code> 层。
+
+解码默认严格且有资源边界：保留格式、零长度字节计数、截断、数值宽度
+错位、非法 ASCII、根 Item 后尾随数据均失败；递归深度和总节点数可配置。
+
 ### 连接与协议会话分离
 
 TCP `Connected` 不等于 HSMS `Selected`。Host/Equipment 角色也不等于 Active/Passive 连接模式，四种组合应在模型上保持独立。

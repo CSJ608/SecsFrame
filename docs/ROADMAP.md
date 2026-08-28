@@ -8,10 +8,16 @@
 
 ## 阶段 1：SECS-II 与 HSMS-SS 基础
 
-- 完整 SECS-II Item 类型、嵌套 List 和二进制编解码。
+- [x] 完整 SECS-II Item 类型、嵌套 List 和严格二进制编解码。
 - Active/Passive HSMS-SS 状态机和 Select/Linktest/Separate/Reject 控制消息。
 - T3/T5/T6/T7/T8、System Bytes 关联和会话失效处理。
 - Host、Equipment 双角色回环集成测试，以及与 secs4net 的互操作测试。
+
+阶段 1 的下一最小切片是动态 <code>SecsMessage</code> 与 HSMS Data
+Message Body 集成。它依赖已完成的 Item 编解码，但不依赖连接状态机。
+状态机与事务层随后依赖 StreamFrame #38 的未完成帧超时语义和 #39 的
+会话感知发送确认；上游支持前由内部传输适配器提供等价语义，临时约定
+不进入公共 API。
 
 ## 阶段 2：GEM 通用能力
 
