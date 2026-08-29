@@ -11,6 +11,7 @@
 - 不包含异常和原始帧的结构化 HSMS 诊断快照导出与严格读取；
 - 显式启用的完整控制观测或公共未认领控制事件的十字节头元数据导出与
   严格读取。
+- 已成帧但 SECS-II Body 解码失败的显式分级故障样本。
 
 当前切片不是原始网络抓包器，不记录 TCP 字节、transport Session generation、
 控制帧的线上原始字节或异常对象，也不会接管 <code>HsmsConnection</code> 的
@@ -131,6 +132,58 @@ PCAP 级线上时序；需要线速证据时不能从本元数据流推断字节
 数据事务认领的控制帧，主要用于未匹配 Reject。两条创建路径生成同一信封；
 控制信封不能进入消息重放器，头字段仍应按运维元数据执行访问控制与保留策略。
 
+## 解码失败样本
+
+<code>SecsFrame-FaultSampleTrace/1</code> 只接受应用从现有事件循环取得的
+<code>DataMessageDecodeFailed</code>。捕获时必须显式选择三种数据分类之一：
+
+- <code>MetadataOnly</code>：只保存十字节头字段和原 Body 长度；
+- <code>RedactedPayload</code>：复制 Body，并把声明的非重叠字节范围清零；
+- <code>RawPayload</code>：显式复制未脱敏 Body。
+
+默认 codec 只允许 MetadataOnly。即使已经显式捕获 payload，导入或导出仍
+必须再次设置 <code>allowPayloadRecords: true</code>：
+
+~~~csharp
+if (connectionEvent.Kind == HsmsConnectionEventKind.DataMessageDecodeFailed)
+{
+    var capture = SecsTraceFaultSampleCaptureOptions.RedactedPayload(
+        new[]
+        {
+            new SecsTraceByteRedactionRange(offset: 4, length: 12),
+        });
+    var record = SecsTraceFaultSampleRecord.Create(
+        DateTimeOffset.UtcNow,
+        connectionEvent,
+        capture);
+    var codec = new SecsTraceFaultSampleCodec(
+        allowPayloadRecords: true);
+    var text = codec.Encode(new[] { record });
+}
+~~~
+
+独立信封使用 14 个单空格分隔字段：
+
+~~~text
+SecsFrame-FaultSampleTrace/1
+Fault 2026-08-29T05:00:00.0000000Z DataMessageDecodeFailed Selected RedactedPayload 23 0x81 0x02 0x00 0x00 0xAABBCCDD 10 2:6 412D0000000000002D5A
+~~~
+
+字段依次为 UTC 时间、固定诊断代码、会话状态、数据分类、原十字节头字段、
+原 Body 长度、逗号分隔的 <code>offset:length</code> 脱敏范围，以及大写
+十六进制 Body。范围相对 SECS-II Body，不包含 HSMS 四字节长度前缀或十字节
+头。Redacted 记录必须至少声明一个范围，范围必须有序、非重叠、不越界，
+且严格读取时会验证范围内每个字节都为零。
+
+payload 捕获默认限制为 64 KiB；超限立即失败，不截断样本。调用方可显式
+收紧或扩大限制，codec 另行执行自己的 Body、记录数和文本长度限制。记录
+防御性复制 Body，后续修改事件原数组不会改变样本。
+
+该信封只重建已经完成 HSMS 成帧和头解码的 payload，不是 TCP/PCAP 抓包，
+不包含异常、长度前缀、分片时序、transport Session generation 或 T8
+未完成片段，也没有重放 API。清零范围可验证，但哪些范围包含敏感数据仍是
+调用方的数据分类责任；未经独立审查不得把 Redacted 等同于已安全公开。
+
 ## 结构化脱敏
 
 脱敏发生在不可变 Item 树上，而不是对 SML 文本做字符串替换：
@@ -223,4 +276,6 @@ var results = await new SecsTraceReplayer().ReplayWithTimingAsync(
 当前工具组合边界，不代表设备命令安全性或 SEMI 一致性认证。诊断信封另有
 黄金向量、可选字段往返、严格枚举/十六进制、资源限制及异常/帧内容不泄漏
 测试。控制信封另有完整 Select/Linktest 双向观测、未匹配 Reject 黄金向量、
-未知 SType 往返、Data Message 拒绝、严格字段与资源限制测试。
+未知 SType 往返、Data Message 拒绝、严格字段与资源限制测试。故障样本
+信封另有三种分类、payload 默认拒绝、范围清零复核、防御性复制、畸形字段
+和 Body/记录/文本资源限制测试。

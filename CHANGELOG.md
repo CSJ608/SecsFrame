@@ -21,6 +21,12 @@
 
 ### 新增
 
+- 增加独立 <code>SecsFrame-FaultSampleTrace/1</code> 信封，为公共
+  <code>DataMessageDecodeFailed</code> 事件提供已成帧 HSMS data body 样本。
+- 捕获必须显式选择 MetadataOnly、RedactedPayload 或 RawPayload；默认 codec
+  拒绝 payload 导入导出，Redacted 范围固定清零并在严格读取时重新验证。
+- 增加 64 KiB 默认 Body 上限、无截断失败、黄金向量、敏感字节移除、不可变
+  复制、畸形范围/十六进制和资源限制测试；该信封不进入重放路径。
 - 增加默认关闭的完整 HSMS 控制消息元数据观测流，覆盖内部 Select、
   Linktest、Deselect、Reject 与 Separate 的收发，而不改变现有业务事件流。
 - 观测只保留方向、actor 观察状态与原十字节头；入站在协议处理前发布，
