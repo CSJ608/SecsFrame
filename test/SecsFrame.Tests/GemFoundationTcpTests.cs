@@ -14,6 +14,7 @@ public sealed class GemFoundationTcpTests
         await AssertCommunicationAndOnlineAsync(context).ConfigureAwait(true);
         await AssertDynamicDataAsync(context).ConfigureAwait(true);
         await AssertCollectionEventsAsync(context).ConfigureAwait(true);
+        await AssertAlarmCatalogAsync(context).ConfigureAwait(true);
         await AssertAlarmNotificationsAsync(context).ConfigureAwait(true);
         await AssertRemoteCommandsAsync(context).ConfigureAwait(true);
         await AssertClockAsync(context).ConfigureAwait(true);
@@ -274,6 +275,38 @@ public sealed class GemFoundationTcpTests
                 context.Token)).ConfigureAwait(true);
         Assert.Equal(GemOperation.AlarmNotification, rejected.Operation);
         Assert.Equal((byte)1, rejected.Acknowledgement);
+    }
+
+    private static async Task AssertAlarmCatalogAsync(GemTcpContext context)
+    {
+        using var first = context.EquipmentServices.RegisterAlarm(
+            new GemAlarmDefinition(
+                0x81,
+                SecsItem.Ascii("DOOR-01"),
+                "DOOR OPEN"));
+        using var second = context.EquipmentServices.RegisterAlarm(
+            new GemAlarmDefinition(
+                0x02,
+                SecsItem.U2(3002),
+                "PRESSURE HIGH"));
+
+        var all = await context.HostServices.ListAlarmsAsync(
+            cancellationToken: context.Token).ConfigureAwait(true);
+        Assert.Equal(2, all.Count);
+        Assert.Equal(SecsItem.Ascii("DOOR-01"), all[0].AlarmId);
+        Assert.Equal((byte)0x81, all[0].Code);
+        Assert.Equal("DOOR OPEN", all[0].Text);
+        Assert.Equal(SecsItem.U2(3002), all[1].AlarmId);
+
+        var selected = await context.HostServices.ListAlarmsAsync(
+            new[] { SecsItem.U2(404), SecsItem.U2(3002) },
+            context.Token).ConfigureAwait(true);
+        Assert.Equal(SecsItem.U2(3002), Assert.Single(selected).AlarmId);
+
+        first.Dispose();
+        var remaining = await context.HostServices.ListAlarmsAsync(
+            cancellationToken: context.Token).ConfigureAwait(true);
+        Assert.Equal(SecsItem.U2(3002), Assert.Single(remaining).AlarmId);
     }
 
     private static async Task AssertRemoteCommandsAsync(GemTcpContext context)
