@@ -6,7 +6,8 @@
 
 - 确定性的 <code>SecsFrame-Trace/1</code> 文本导出和严格读取；
 - 按 Stream、Function 与 Item List 路径执行的结构化替换脱敏；
-- 只选择显式允许的本地发送记录，并通过正常公共发送 API 串行重放。
+- 只选择显式允许的本地发送记录，并通过正常公共发送 API 串行重放；
+- 可选按缩放且封顶的源时间间隔执行受控时序重放。
 
 当前切片不是原始网络抓包器，不记录 TCP 字节、transport Session generation、
 控制帧或异常对象，也不会接管 <code>HsmsConnection</code> 的单消费者事件流。
@@ -99,16 +100,47 @@ var results = await new SecsTraceReplayer().ReplayAsync(
 - 只考虑 <code>Sent</code> 记录，<code>Received</code> 永远跳过；
 - 按源顺序逐条等待正常 <code>SendAsync</code>，W-Bit 继续使用现有 T3；
 - 忽略原时间、Session ID、System Bytes 和回复令牌，由活连接创建新事务；
-- 不等待连接进入 Selected，不自动重试，也不按原时间间隔暂停；
+- 默认的 <code>ReplayAsync</code> 不等待连接进入 Selected、不自动重试，
+  也不按原时间间隔暂停；
 - 返回每条已发送记录及新事务获得的可选 Secondary。
 
 allowlist 是业务安全边界。库不会依据 Function 奇偶、消息名称或未知设备状态
 推断 Primary/Secondary、幂等性或命令权限；应用只能允许已确认可在目标设备
 与当前状态执行的消息。
 
+### 可选时序
+
+只有显式调用 <code>ReplayWithTimingAsync</code> 才会启用时序等待：
+
+~~~csharp
+var timing = new SecsTraceReplayTimingOptions(
+    speedMultiplier: 2.0,
+    maxDelay: TimeSpan.FromSeconds(5));
+
+var results = await new SecsTraceReplayer().ReplayWithTimingAsync(
+    records,
+    connection,
+    record => record.Message.Stream == 1 &&
+        record.Message.Function == 1,
+    timing,
+    cancellationToken);
+~~~
+
+间隔只在经过方向与 allowlist 筛选的 <code>Sent</code> 记录之间计算；被跳过的
+记录不会拉长等待。时间戳必须非递减，库会在第一次发送前完成全部检查。
+第一条记录立即发送，后续间隔先除以 <code>SpeedMultiplier</code>，再按
+<code>MaxDelay</code> 封顶；相同时间戳不等待。上例把源间隔加速两倍，并把
+缩放后的单次等待限制为五秒。
+
+每次等待从上一条消息的发送任务完成后开始，因此该模式保留相邻消息的最小
+节奏，不承诺复现原始绝对发送时刻。等待期间取消会阻止下一条发送，已经完成
+的发送不会回滚。时序模式同样不等待 Selected、不自动重试，也不会绕过
+正常 T3 或连接状态检查。
+
 ## 验证边界
 
 测试覆盖确定性信封、多记录往返、畸形头与长度、SML 嵌入错误、记录和文本
 资源限制、路径漂移、规则重叠、敏感值不进入导出文本、预验证零发送，以及
-真实 TCP 上重新分配 Session ID/System Bytes 并获得新 Secondary。它证明
+时序缩放/封顶、筛选间隔、时间倒退预验证、等待取消和默认零等待。真实 TCP
+测试还验证重新分配 Session ID/System Bytes 并获得新 Secondary。它证明
 当前工具组合边界，不代表设备命令安全性或 SEMI 一致性认证。
