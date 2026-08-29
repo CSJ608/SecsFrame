@@ -60,6 +60,8 @@ Item 用法与边界见
 [docs/HSMS-SESSION-STATE-MACHINE.md](docs/HSMS-SESSION-STATE-MACHINE.md)，
 数据事务边界见
 [docs/HSMS-DATA-TRANSACTIONS.md](docs/HSMS-DATA-TRANSACTIONS.md)，
+独立长时会话故障注入见
+[docs/HSMS-SOAK.md](docs/HSMS-SOAK.md)，
 公共连接用法见
 [docs/HSMS-CONNECTION.md](docs/HSMS-CONNECTION.md)，
 结构化故障分类见

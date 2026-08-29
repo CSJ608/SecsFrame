@@ -7,6 +7,7 @@
   </Folder>
   <Folder Name="/test/">
     <Project Path="test/SecsFrame.Secs4NetInterop.Tests/SecsFrame.Secs4NetInterop.Tests.csproj" />
+    <Project Path="test/SecsFrame.Soak/SecsFrame.Soak.csproj" />
     <Project Path="test/SecsFrame.Tests/SecsFrame.Tests.csproj" />
   </Folder>
 </Solution>

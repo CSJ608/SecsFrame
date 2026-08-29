@@ -1,0 +1,71 @@
+name: session-soak
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration_minutes:
+        description: Bounded soak duration
+        type: choice
+        options: ["1", "5", "15", "20"]
+        default: "5"
+      seed:
+        description: Positive 32-bit seed; 0 derives one from the run ID
+        type: string
+        default: "0"
+  schedule:
+    - cron: "43 2 * * 3"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: session-soak
+  cancel-in-progress: false
+
+jobs:
+  session-soak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+      - name: Resolve bounded run parameters
+        id: parameters
+        shell: bash
+        env:
+          INPUT_DURATION_MINUTES: ${{ inputs.duration_minutes || '15' }}
+          INPUT_SEED: ${{ inputs.seed || '0' }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$INPUT_SEED" =~ ^[0-9]+$ ]] || (( INPUT_SEED > 2147483647 )); then
+            echo "seed must be between 0 and 2147483647" >&2
+            exit 2
+          fi
+          seed="$INPUT_SEED"
+          if (( seed == 0 )); then
+            seed=$((GITHUB_RUN_ID % 2147483647))
+            if (( seed == 0 )); then seed=1; fi
+          fi
+          duration_seconds=$((INPUT_DURATION_MINUTES * 60))
+          echo "seed=$seed" >> "$GITHUB_OUTPUT"
+          echo "duration_seconds=$duration_seconds" >> "$GITHUB_OUTPUT"
+      - name: Build soak harness
+        run: dotnet build test/SecsFrame.Soak/SecsFrame.Soak.csproj -c Release
+      - name: Run session fault soak
+        run: >-
+          dotnet run --project test/SecsFrame.Soak/SecsFrame.Soak.csproj
+          -c Release --no-build --
+          --seed ${{ steps.parameters.outputs.seed }}
+          --duration-seconds ${{ steps.parameters.outputs.duration_seconds }}
+          --max-cycles 10000
+          --output artifacts/soak/session-soak.jsonl
+      - name: Upload reproduction report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: session-soak-${{ github.run_id }}-${{ steps.parameters.outputs.seed }}
+          path: artifacts/soak/session-soak.jsonl
+          if-no-files-found: error
+          retention-days: 14

@@ -85,6 +85,13 @@ Active/Passive 双端真实 TCP 回环另行覆盖 Select 后的 Primary/Seconda
 会话回复，验证待处理事务确定中断且替换会话仍可完成本代事务。同步只使用
 状态事件、计时器武装信号和事务任务，并由统一取消令牌严格封顶。
 
+独立 <code>SecsFrame.Soak</code> 可执行程序进一步在真实 TCP 待处理事务中
+按 seed 随机选择 Active Separate、Passive Separate、Active 端点销毁重建
+或 Passive 端点销毁重建。每次故障后必须重新进入 Selected 并完成新事务，
+逐周期 JSONL 保留故障类型、中断异常和新旧 System Bytes。该负载只由手动/
+定时工作流运行，不进入普通 <code>dotnet test</code>；完整运行与复现边界见
+[HSMS-SOAK.md](HSMS-SOAK.md)。
+
 这些测试是自主构造的工程向量，不是 SEMI 一致性测试。
 
 ## 标准核对边界
