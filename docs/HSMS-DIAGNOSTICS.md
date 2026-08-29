@@ -71,6 +71,14 @@ Session ID 与 System Bytes；拒绝诊断保留远端状态或原因字节。
 工艺数据。库不自动格式化、写日志或上传它。应用在记录前应按自己的数据
 分类策略做脱敏和长度限制；常规指标优先只使用代码、层级、操作和计时器。
 
+<code>SecsFrame.Trace</code> 提供独立的
+<code>SecsFrame-DiagnosticTrace/1</code> 受限字段快照信封。
+<code>SecsTraceDiagnosticRecord.Create</code> 只复制稳定代码、层级、操作、
+状态、计时器与可选协议标识/状态字节，不复制 <code>Error</code> 或
+<code>Frame</code>。这使结构化诊断可以确定性导出，但协议 Session ID、
+System Bytes 和远端状态字节仍属于运维元数据，导出文件仍应使用适当的
+访问控制与保留策略。具体格式和示例见 [TRACE.md](TRACE.md)。
+
 ## 标准边界
 
 诊断名称描述 SecsFrame 已实现并测试的工程行为，不新增 SEMI 默认值，也

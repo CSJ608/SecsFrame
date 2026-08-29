@@ -7,7 +7,8 @@
 - 确定性的 <code>SecsFrame-Trace/1</code> 文本导出和严格读取；
 - 按 Stream、Function 与 Item List 路径执行的结构化替换脱敏；
 - 只选择显式允许的本地发送记录，并通过正常公共发送 API 串行重放；
-- 可选按缩放且封顶的源时间间隔执行受控时序重放。
+- 可选按缩放且封顶的源时间间隔执行受控时序重放；
+- 不包含异常和原始帧的结构化 HSMS 诊断快照导出与严格读取。
 
 当前切片不是原始网络抓包器，不记录 TCP 字节、transport Session generation、
 控制帧或异常对象，也不会接管 <code>HsmsConnection</code> 的单消费者事件流。
@@ -53,6 +54,39 @@ Item、值和文本长度限制。解析错误使用包含记录索引与字符�
 
 该格式是 SecsFrame 的版本化诊断信封，不是 SEMI 标准、PCAP 或原始 HSMS
 wire trace。协议标识只用于问题关联，不能作为新连接上的重放标识。
+
+## 结构化诊断信封
+
+<code>SecsTraceDiagnosticRecord</code> 从公共 <code>HsmsDiagnostic</code>
+创建只包含稳定标量的受限字段快照：
+
+~~~csharp
+if (connectionEvent.Diagnostic is { } diagnostic)
+{
+    var record = SecsTraceDiagnosticRecord.Create(
+        DateTimeOffset.UtcNow,
+        diagnostic);
+    var text = new SecsTraceDiagnosticCodec().Encode(new[] { record });
+}
+~~~
+
+独立信封固定使用 LF 与 11 个单空格分隔字段：
+
+~~~text
+SecsFrame-DiagnosticTrace/1
+Diagnostic 2026-08-29T05:00:00.0000000Z T3Timeout Transaction WaitForSecondary Selected T3 10 0x10203040 - -
+~~~
+
+字段依次为 UTC 时间、诊断代码、层级、操作、会话状态、可选计时器、协议
+Session ID、System Bytes、远端状态字节和被拒绝的 SType。枚举只接受当前
+已定义的精确名称；协议字节使用固定宽度大写十六进制。codec 同样限制记录数
+和总文本长度，并通过 <code>SecsTraceParseException</code> 报告记录索引与
+字符偏移。
+
+快照 API 不提供 <code>Error</code> 或 <code>Frame</code> 字段，创建快照时也
+不会读取或格式化它们，因此异常消息和未解码帧负载不会进入导出文本。该格式
+与 <code>SecsFrame-Trace/1</code> 消息信封相互独立，不能交给重放器。协议
+标识和状态字节仍是运维元数据；存储和共享文件时仍需执行访问控制与保留策略。
 
 ## 结构化脱敏
 
@@ -143,4 +177,6 @@ var results = await new SecsTraceReplayer().ReplayWithTimingAsync(
 资源限制、路径漂移、规则重叠、敏感值不进入导出文本、预验证零发送，以及
 时序缩放/封顶、筛选间隔、时间倒退预验证、等待取消和默认零等待。真实 TCP
 测试还验证重新分配 Session ID/System Bytes 并获得新 Secondary。它证明
-当前工具组合边界，不代表设备命令安全性或 SEMI 一致性认证。
+当前工具组合边界，不代表设备命令安全性或 SEMI 一致性认证。诊断信封另有
+黄金向量、可选字段往返、严格枚举/十六进制、资源限制及异常/帧内容不泄漏
+测试。
