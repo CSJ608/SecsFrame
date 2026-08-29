@@ -17,6 +17,8 @@ E172 SEDD 与 E173 SMN 是可选元数据/表示层，不进入核心通讯路�
 解码的数据消息；它不订阅内部 transport 或创建第二个公共事件消费者。
 Trace 的时序重放必须显式启用，只在允许发送记录之间等待，并继续通过公共
 发送 API 创建新事务；默认重放不引入时间等待。
+结构化诊断使用独立只读快照信封：只复制公共诊断的稳定标量，明确排除原
+异常和未解码帧，也不能进入重放路径。
 
 ## 核心原则
 
@@ -166,6 +168,7 @@ HSMS 头 Session ID 与 System Bytes。没有 W-Bit 的出站消息在写出后
 - `SecsFrame.Sml` 依赖 `SecsFrame`，不得依赖 GEM 或线上传输实现。
 - `SecsFrame.Trace` 依赖 `SecsFrame.Sml` 与 `SecsFrame`，重放必须回到
   公共发送 API，不得直接构造或写出保留旧事务标识的线上帧；可选时序只
-  控制相邻发送前的等待，不得绕过连接状态、T3 或显式 allowlist。
+  控制相邻发送前的等待，不得绕过连接状态、T3 或显式 allowlist。诊断
+  导出不得隐式包含 <code>Exception</code> 或 <code>HsmsFrame</code>。
 - 核心包不得依赖 GEM、SML/SMN、依赖注入容器或具体日志实现。
 - 状态机计时使用可替换的时间抽象，测试不得依赖真实长时间等待。

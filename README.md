@@ -19,7 +19,7 @@
 | `SecsFrame` | SECS-II 数据模型、HSMS-SS 会话与事务基础 |
 | `SecsFrame.Gem` | GEM 通用状态模型与能力服务 |
 | `SecsFrame.Sml` | 动态消息的确定性 SML 调试读写 |
-| `SecsFrame.Trace` | 已解码消息的导出、结构化脱敏与受控重放 |
+| `SecsFrame.Trace` | 已解码消息与受限诊断快照的导出、结构化脱敏与受控重放 |
 | `SecsFrame.Smn` | E173 SMN 日志、文档与消息表示 |
 | `SecsFrame.Sedd` | E172 SEDD 设备接口数据字典 |
 
@@ -43,7 +43,8 @@ Equipment 应用发送策略的 Collection Event、报警目录查询、单报�
 不进入线上通讯路径。
 <code>SecsFrame.Trace</code> 在该文本层上提供版本化的数据消息 Trace 信封、
 严格的 Item 路径脱敏、显式 allowlist 重放，以及默认关闭的缩放/封顶时序
-重放；它不会接管连接事件消费者，也不会复用原事务标识。
+重放；独立诊断信封只保存稳定标量，不保存异常或原始帧。该包不会接管连接
+事件消费者，也不会复用原事务标识。
 Item 用法与边界见
 [docs/SECS-II-ITEMS.md](docs/SECS-II-ITEMS.md)，消息集成见
 [docs/SECS-MESSAGES.md](docs/SECS-MESSAGES.md)，传输适配边界见
