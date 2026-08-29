@@ -31,6 +31,9 @@ public sealed class GemMessageProfileTests
         Assert.Equal(new GemMessagePair(5, 1, 2), profile.AlarmNotification);
         Assert.Equal(new GemMessagePair(2, 41, 42), profile.RemoteCommand);
         Assert.Equal(new GemMessagePair(5, 5, 6), profile.ListAlarms);
+        Assert.Equal(new GemMessagePair(5, 3, 4), profile.AlarmSendControl);
+        Assert.Equal((byte)0x80, profile.AlarmControlCodec.EnabledCode);
+        Assert.Equal((byte)0x00, profile.AlarmControlCodec.DisabledCode);
         Assert.Equal(
             new GemMessagePair(5, 1, 2),
             CreateLegacyCompatibleProfile(profile).AlarmNotification);
@@ -43,6 +46,9 @@ public sealed class GemMessageProfileTests
         Assert.Equal(
             new GemMessagePair(5, 5, 6),
             CreateRemoteCompatibleProfile(profile).ListAlarms);
+        Assert.Equal(
+            new GemMessagePair(5, 3, 4),
+            CreateProfile(profile).AlarmSendControl);
         Assert.Equal((byte)0, profile.AcceptedAcknowledgement);
         Assert.Equal((byte)1, profile.FailedAcknowledgement);
         Assert.Equal("2026082801101112", profile.ClockCodec.Encode(value));
@@ -70,9 +76,15 @@ public sealed class GemMessageProfileTests
         Assert.Throws<ArgumentException>(() => CreateProfile(
             baseline,
             listAlarms: baseline.EstablishCommunication));
+        Assert.Throws<ArgumentException>(() => CreateExplicitProfile(
+            baseline,
+            alarmSendControl: baseline.EstablishCommunication));
         Assert.Throws<ArgumentException>(() => CreateProfile(
             baseline,
             failedAcknowledgement: baseline.AcceptedAcknowledgement));
+        Assert.Throws<ArgumentNullException>(() => CreateExplicitProfile(
+            baseline,
+            useNullAlarmControlCodec: true));
         Assert.Throws<ArgumentNullException>(() => CreateProfile(
             baseline,
             useNullClockCodec: true));
@@ -122,6 +134,8 @@ public sealed class GemMessageProfileTests
         Assert.Equal("DOOR OPEN", alarmDefinition.Text);
         Assert.Throws<ArgumentException>(() =>
             new GemAlarmDefinition(0, SecsItem.U2(3001), "报警"));
+        Assert.Throws<ArgumentException>(() =>
+            new GemAlarmControlCodec(0x80, 0x80));
     }
 
     [Fact]
@@ -204,6 +218,31 @@ public sealed class GemMessageProfileTests
             baseline.DefineReports,
             baseline.LinkEventReports,
             baseline.CollectionEvent,
+            baseline.AcceptedAcknowledgement,
+            baseline.FailedAcknowledgement,
+            baseline.ClockCodec);
+
+    private static GemMessageProfile CreateExplicitProfile(
+        GemMessageProfile baseline,
+        GemMessagePair? alarmSendControl = null,
+        bool useNullAlarmControlCodec = false)
+        => new(
+            baseline.EstablishCommunication,
+            baseline.AreYouOnline,
+            baseline.RequestOnline,
+            baseline.RequestOffline,
+            baseline.ReadStatusVariables,
+            baseline.ReadEquipmentConstants,
+            baseline.GetClock,
+            baseline.SetClock,
+            baseline.DefineReports,
+            baseline.LinkEventReports,
+            baseline.CollectionEvent,
+            baseline.AlarmNotification,
+            baseline.RemoteCommand,
+            baseline.ListAlarms,
+            alarmSendControl ?? baseline.AlarmSendControl,
+            useNullAlarmControlCodec ? null! : baseline.AlarmControlCodec,
             baseline.AcceptedAcknowledgement,
             baseline.FailedAcknowledgement,
             baseline.ClockCodec);

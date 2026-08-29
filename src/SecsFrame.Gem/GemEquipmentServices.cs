@@ -193,6 +193,17 @@ public sealed class GemEquipmentServices : IDisposable
         if (notification is null)
             throw new ArgumentNullException(nameof(notification));
 
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            if (_alarms.TryGetValue(notification.AlarmId, out var registration) &&
+                !registration.IsSendEnabled)
+            {
+                throw new InvalidOperationException(
+                    $"Alarm sending is disabled for {notification.AlarmId}.");
+            }
+        }
+
         var response = await _services.SendRequestAsync(
             Profile.AlarmNotification,
             GemOperation.AlarmNotification,
@@ -244,6 +255,7 @@ public sealed class GemEquipmentServices : IDisposable
         _services.AddRoute(Profile.LinkEventReports, HandleLinkEventReportsAsync);
         _services.AddRoute(Profile.RemoteCommand, HandleRemoteCommandAsync);
         _services.AddRoute(Profile.ListAlarms, HandleListAlarmsAsync);
+        _services.AddRoute(Profile.AlarmSendControl, HandleAlarmSendControlAsync);
     }
 
     private ValueTask<SecsMessage?> HandleOnlineAsync(
@@ -454,6 +466,37 @@ public sealed class GemEquipmentServices : IDisposable
             GemEndpointServices.CreateSecondary(
                 Profile.ListAlarms,
                 GemMessageCodec.EncodeAlarmDefinitions(definitions)));
+    }
+
+    private ValueTask<SecsMessage?> HandleAlarmSendControlAsync(
+        HsmsPrimaryContext context,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        GemMessageCodec.RequireReplyExpected(
+            context,
+            "alarm-send control request");
+        var control = GemMessageCodec.DecodeAlarmSendControl(
+            context.Message.RootItem,
+            Profile.AlarmControlCodec);
+        var accepted = false;
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            if (_alarms.TryGetValue(control.AlarmId, out var registration))
+            {
+                registration.SetSendEnabled(control.Enabled);
+                accepted = true;
+            }
+        }
+
+        return new ValueTask<SecsMessage?>(
+            GemEndpointServices.CreateSecondary(
+                Profile.AlarmSendControl,
+                GemMessageCodec.EncodeAcknowledgement(
+                    accepted
+                        ? Profile.AcceptedAcknowledgement
+                        : Profile.FailedAcknowledgement)));
     }
 
     private GemValueRegistration RegisterValue(

@@ -322,6 +322,34 @@ internal static class GemMessageCodec
         return Array.AsReadOnly(definitions);
     }
 
+    internal static SecsItem EncodeAlarmSendControl(
+        SecsItem alarmId,
+        bool enabled,
+        GemAlarmControlCodec codec)
+    {
+        if (alarmId is null)
+            throw new ArgumentNullException(nameof(alarmId));
+        if (codec is null)
+            throw new ArgumentNullException(nameof(codec));
+
+        return SecsItem.List(
+            SecsItem.Binary(codec.Encode(enabled)),
+            alarmId);
+    }
+
+    internal static (SecsItem AlarmId, bool Enabled) DecodeAlarmSendControl(
+        SecsItem? root,
+        GemAlarmControlCodec codec)
+    {
+        if (codec is null)
+            throw new ArgumentNullException(nameof(codec));
+
+        const string operation = "alarm-send control request";
+        var fields = RequireList(root, 2, operation);
+        var code = RequireBinaryByte(fields[0], "alarm-send control code");
+        return (fields[1], codec.Decode(code));
+    }
+
     internal static SecsItem EncodeRemoteCommand(GemRemoteCommand command)
     {
         if (command is null)

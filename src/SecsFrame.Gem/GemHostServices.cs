@@ -203,6 +203,27 @@ public sealed class GemHostServices : IDisposable
             response.Message.RootItem);
     }
 
+    /// <summary>Enables or disables sending for one registered Equipment alarm.</summary>
+    public async Task SetAlarmSendEnabledAsync(
+        SecsItem alarmId,
+        bool enabled,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await _services.SendRequestAsync(
+            Profile.AlarmSendControl,
+            GemOperation.SetAlarmSendEnabled,
+            GemMessageCodec.EncodeAlarmSendControl(
+                alarmId,
+                enabled,
+                Profile.AlarmControlCodec),
+            cancellationToken).ConfigureAwait(false);
+        _services.RequireAccepted(
+            GemOperation.SetAlarmSendEnabled,
+            GemMessageCodec.DecodeAcknowledgement(
+                response.Message.RootItem,
+                "alarm-send control reply"));
+    }
+
     /// <summary>Registers the single application Collection Event handler.</summary>
     public GemCollectionEventRegistration RegisterCollectionEventHandler(
         GemCollectionEventHandler handler)
