@@ -59,7 +59,7 @@ jobs:
           -c Release --no-build --
           --seed ${{ steps.parameters.outputs.seed }}
           --duration-seconds ${{ steps.parameters.outputs.duration_seconds }}
-          --max-cycles 10000
+          --max-cycles 100000
           --output artifacts/soak/session-soak.jsonl
       - name: Upload reproduction report
         if: always()
