@@ -21,6 +21,10 @@
 
 ### 新增
 
+- 增加独立 <code>SecsFrame-ControlTrace/1</code> 信封，对公共未认领控制
+  事件提供不含 Body 的十字节头元数据导出与严格读取。
+- 控制记录保留方向、观察状态和原始头字段，允许未知非零 SType 往返；增加
+  未匹配 Reject 黄金向量、Data Message 拒绝、畸形字段与资源限制测试。
 - 增加独立 <code>SecsFrame-DiagnosticTrace/1</code> 信封，为公共
   <code>HsmsDiagnostic</code> 提供确定性受限字段快照导出与严格读取。
 - 诊断快照只保留代码、层级、操作、状态、计时器和可选协议标量，明确排除
