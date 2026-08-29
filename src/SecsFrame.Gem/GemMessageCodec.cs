@@ -17,10 +17,12 @@ internal static class GemMessageCodec
 
     internal static SecsItem EncodeCommunicationReply(
         byte acknowledgement,
-        GemIdentity identity)
+        GemIdentity? identity)
         => SecsItem.List(
             EncodeAcknowledgement(acknowledgement),
-            EncodeIdentity(identity));
+            identity is null
+                ? SecsItem.List()
+                : EncodeIdentity(identity));
 
     internal static (byte Acknowledgement, GemIdentity? Identity)
         DecodeCommunicationReply(SecsItem? root)

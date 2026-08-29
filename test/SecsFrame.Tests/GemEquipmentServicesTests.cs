@@ -246,6 +246,33 @@ public sealed class GemEquipmentServicesTests
     }
 
     [Fact]
+    public async Task Communication_establishment_handler_is_exact_disposable_and_replaceable()
+    {
+        await using var endpoint = new SecsEquipment(
+            CreateOptions(GetFreePort(), HsmsConnectionMode.Active));
+        using var services = new GemEquipmentServices(
+            endpoint,
+            new GemIdentity("EQ-01", "1.0"),
+            new TestGemClock(Epoch));
+        GemCommunicationEstablishmentHandler handler = static (_, _) =>
+            new ValueTask<bool>(true);
+
+        Assert.Throws<ArgumentNullException>(() =>
+            services.RegisterCommunicationEstablishmentHandler(null!));
+        var first =
+            services.RegisterCommunicationEstablishmentHandler(handler);
+        Assert.Throws<InvalidOperationException>(() =>
+            services.RegisterCommunicationEstablishmentHandler(handler));
+        first.Dispose();
+        first.Dispose();
+        using var replacement =
+            services.RegisterCommunicationEstablishmentHandler(handler);
+        services.Dispose();
+        Assert.Throws<ObjectDisposedException>(() =>
+            services.RegisterCommunicationEstablishmentHandler(handler));
+    }
+
+    [Fact]
     public async Task Event_link_rejects_duplicate_report_identifiers()
     {
         await using var endpoint = new SecsEquipment(

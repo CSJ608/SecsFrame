@@ -4,6 +4,13 @@ internal sealed class GemEndpointServices : IDisposable
 {
     private readonly SecsEndpoint _endpoint;
     private readonly List<HsmsPrimaryRouteRegistration> _routes = new();
+#if NET9_0_OR_GREATER
+    private readonly Lock _gate = new();
+#else
+    private readonly object _gate = new();
+#endif
+    private GemCommunicationEstablishmentRegistration?
+        _communicationEstablishmentHandler;
     private GemIdentity? _peerIdentity;
     private int _communicationState;
     private int _onlineState;
@@ -64,6 +71,30 @@ internal sealed class GemEndpointServices : IDisposable
 
         SetCommunicating(reply.Identity);
         return reply.Identity;
+    }
+
+    internal GemCommunicationEstablishmentRegistration
+        RegisterCommunicationEstablishmentHandler(
+            GemCommunicationEstablishmentHandler handler)
+    {
+        if (handler is null)
+            throw new ArgumentNullException(nameof(handler));
+
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            if (_communicationEstablishmentHandler is not null)
+            {
+                throw new InvalidOperationException(
+                    "A communication-establishment handler is already registered.");
+            }
+
+            var registration = new GemCommunicationEstablishmentRegistration(
+                handler,
+                UnregisterCommunicationEstablishmentHandler);
+            _communicationEstablishmentHandler = registration;
+            return registration;
+        }
     }
 
     internal async Task<GemIdentity> AreYouOnlineAsync(
@@ -176,6 +207,9 @@ internal sealed class GemEndpointServices : IDisposable
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
+        lock (_gate)
+            _communicationEstablishmentHandler = null;
+
         for (var index = _routes.Count - 1; index >= 0; index--)
             _routes[index].Dispose();
         _routes.Clear();
@@ -193,14 +227,26 @@ internal sealed class GemEndpointServices : IDisposable
         var identity = GemMessageCodec.DecodeIdentity(
             context.Message.RootItem,
             "communication-establishment request");
+        GemCommunicationEstablishmentHandler? handler;
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            handler = _communicationEstablishmentHandler?.Handler;
+        }
+
+        var accepted = handler is null ||
+            await handler(identity, cancellationToken).ConfigureAwait(false);
         await ReplyAsync(
             context,
             Profile.EstablishCommunication,
             GemMessageCodec.EncodeCommunicationReply(
-                Profile.AcceptedAcknowledgement,
-                Identity),
+                accepted
+                    ? Profile.AcceptedAcknowledgement
+                    : Profile.FailedAcknowledgement,
+                accepted ? Identity : null),
             cancellationToken).ConfigureAwait(false);
-        SetCommunicating(identity);
+        if (accepted)
+            SetCommunicating(identity);
         return null;
     }
 
@@ -239,6 +285,20 @@ internal sealed class GemEndpointServices : IDisposable
             ref _communicationState,
             (int)GemCommunicationState.NotCommunicating);
         Volatile.Write(ref _onlineState, (int)GemOnlineState.Offline);
+    }
+
+    private void UnregisterCommunicationEstablishmentHandler(
+        GemCommunicationEstablishmentRegistration registration)
+    {
+        lock (_gate)
+        {
+            if (ReferenceEquals(
+                _communicationEstablishmentHandler,
+                registration))
+            {
+                _communicationEstablishmentHandler = null;
+            }
+        }
     }
 
     private void ThrowIfDisposed()

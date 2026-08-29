@@ -68,6 +68,15 @@ public sealed class GemEquipmentServices : IDisposable
         CancellationToken cancellationToken = default)
         => _services.EstablishCommunicationAsync(cancellationToken);
 
+    /// <summary>
+    /// Registers the single application policy for peer-requested communication
+    /// establishment.
+    /// </summary>
+    public GemCommunicationEstablishmentRegistration
+        RegisterCommunicationEstablishmentHandler(
+            GemCommunicationEstablishmentHandler handler)
+        => _services.RegisterCommunicationEstablishmentHandler(handler);
+
     /// <summary>Queries the Host identity.</summary>
     public Task<GemIdentity> AreYouOnlineAsync(
         CancellationToken cancellationToken = default)

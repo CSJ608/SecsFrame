@@ -58,6 +58,31 @@ public sealed class GemHostServicesTests
     }
 
     [Fact]
+    public async Task Communication_establishment_handler_is_exact_disposable_and_replaceable()
+    {
+        await using var endpoint = new SecsHost(CreateOptions());
+        using var services = new GemHostServices(
+            endpoint,
+            new GemIdentity("HOST-01", "1.0"));
+        GemCommunicationEstablishmentHandler handler = static (_, _) =>
+            new ValueTask<bool>(true);
+
+        Assert.Throws<ArgumentNullException>(() =>
+            services.RegisterCommunicationEstablishmentHandler(null!));
+        var first =
+            services.RegisterCommunicationEstablishmentHandler(handler);
+        Assert.Throws<InvalidOperationException>(() =>
+            services.RegisterCommunicationEstablishmentHandler(handler));
+        first.Dispose();
+        first.Dispose();
+        using var replacement =
+            services.RegisterCommunicationEstablishmentHandler(handler);
+        services.Dispose();
+        Assert.Throws<ObjectDisposedException>(() =>
+            services.RegisterCommunicationEstablishmentHandler(handler));
+    }
+
+    [Fact]
     public async Task Alarm_notification_vectors_require_w_bit_and_strict_fields()
     {
         await using var endpoint = new SecsHost(CreateOptions());
