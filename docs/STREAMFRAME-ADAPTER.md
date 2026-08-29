@@ -2,7 +2,7 @@
 
 ## 上游基线
 
-SecsFrame 固定依赖官方 [StreamFrame 2.3.1](https://www.nuget.org/packages/StreamFrame/2.3.1)。
+SecsFrame 固定依赖官方 [StreamFrame 2.4.0](https://www.nuget.org/packages/StreamFrame/2.4.0)。
 2.3.0 已经解决此前跟踪的两项能力缺口：
 
 - [#38](https://github.com/CSJ608/StreamFrame/issues/38) / [PR #41](https://github.com/CSJ608/StreamFrame/pull/41)：
@@ -15,6 +15,15 @@ SecsFrame 固定依赖官方 [StreamFrame 2.3.1](https://www.nuget.org/packages/
 ID，残留的旧会话绑定消息以 <code>SessionExpiredException</code> 结束且
 不会写入新 Socket。停机、Socket 释放及会话故障竞态也统一收敛到该异常
 边界。详见 [2.3.1 发布说明](https://github.com/CSJ608/StreamFrame/releases/tag/v2.3.1)。
+
+2.4.0 不移除 SecsFrame 使用的会话感知公共接口。会话 epoch 改为与 Session
+ID 一样在 Connected 发布点分配，闭合状态已经对外可见但会话任务尚未创建
+期间的旧 epoch 故障窗口；Passive 接受重试延迟移到锁外，并为监听 Socket
+设置 <code>SO_REUSEADDR</code>，提高故障重试和立即重绑的跨平台稳定性。
+底层连接还会通过 <code>System.Diagnostics.Metrics</code> 的
+<code>StreamFrame</code> Meter 发出内置指标，但 SecsFrame 不把这些类型
+提升为公共 API。详见
+[2.4.0 发布说明](https://github.com/CSJ608/StreamFrame/releases/tag/v2.4.0)。
 
 SecsFrame 不再维护基于原始字节回调的 T8 监视器、发送确认计数器、会话
 信封 codec 或自建 TCP Session ID。公共 API 和内部
@@ -73,7 +82,7 @@ StreamFrame 只在已有未完成帧时运行该超时：空闲连接和完整�
 分片帧收发、实际 T8 到期，以及会话替换时排队发送的精确失效与新 Socket
 内容隔离；完整套件继续覆盖 T3/T6 从发送完成点启动以及旧会话不重放。
 
-这些测试证明当前工程契约与 StreamFrame 2.3.1 的互操作行为，不构成
+这些测试证明当前工程契约与 StreamFrame 2.4.0 的互操作行为，不构成
 SEMI 合规声明。T5/T8 的标准默认值、精确启停边界和异常恢复仍须依据团队
 合法获得的 SEMI E37/E37.1 版本及一致性测试核对。仓库不得提交标准正文、
 表格或 Schema。
