@@ -79,6 +79,13 @@ Session ID 与 System Bytes；拒绝诊断保留远端状态或原因字节。
 System Bytes 和远端状态字节仍属于运维元数据，导出文件仍应使用适当的
 访问控制与保留策略。具体格式和示例见 [TRACE.md](TRACE.md)。
 
+需要保留互操作样本时，<code>SecsFrame.Trace</code> 另提供
+<code>SecsFrame-FaultSampleTrace/1</code>。它只接受公共
+<code>DataMessageDecodeFailed</code> 事件，并要求调用方显式选择仅元数据、
+声明范围清零后的 Body 或原始 Body。默认 codec 只允许元数据记录；任何
+带 Body 的导入或导出都要再次显式开启。该信封不包含异常、TCP 长度前缀、
+分片、transport Session generation 或 T8 未完成片段。
+
 ## 标准边界
 
 诊断名称描述 SecsFrame 已实现并测试的工程行为，不新增 SEMI 默认值，也
