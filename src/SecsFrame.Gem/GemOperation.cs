@@ -44,4 +44,7 @@ public enum GemOperation
 
     /// <summary>List registered alarm definitions.</summary>
     ListAlarms,
+
+    /// <summary>Enable or disable sending for one registered alarm.</summary>
+    SetAlarmSendEnabled,
 }

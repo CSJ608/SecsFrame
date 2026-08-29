@@ -3,8 +3,8 @@ using System.Globalization;
 namespace SecsFrame.Gem;
 
 /// <summary>
-/// Configures the message pairs and acknowledgement values used by the
-/// foundational GEM services.
+/// Configures the message pairs, codecs, and acknowledgement values used by
+/// the foundational GEM services.
 /// </summary>
 /// <remarks>
 /// A profile is an interoperability configuration, not a declaration of
@@ -18,6 +18,10 @@ public sealed class GemMessageProfile
         new(2, 41, 42);
     private static readonly GemMessagePair BaselineListAlarms =
         new(5, 5, 6);
+    private static readonly GemMessagePair BaselineAlarmSendControl =
+        new(5, 3, 4);
+    private static readonly GemAlarmControlCodec BaselineAlarmControlCodec =
+        new(enabledCode: 0x80, disabledCode: 0x00);
 
     /// <summary>
     /// Creates a foundational profile using the engineering-baseline alarm and
@@ -139,6 +143,51 @@ public sealed class GemMessageProfile
     {
     }
 
+    /// <summary>
+    /// Creates a foundational profile using the engineering-baseline
+    /// alarm-send control pair and codes.
+    /// </summary>
+    public GemMessageProfile(
+        GemMessagePair establishCommunication,
+        GemMessagePair areYouOnline,
+        GemMessagePair requestOnline,
+        GemMessagePair requestOffline,
+        GemMessagePair readStatusVariables,
+        GemMessagePair readEquipmentConstants,
+        GemMessagePair getClock,
+        GemMessagePair setClock,
+        GemMessagePair defineReports,
+        GemMessagePair linkEventReports,
+        GemMessagePair collectionEvent,
+        GemMessagePair alarmNotification,
+        GemMessagePair remoteCommand,
+        GemMessagePair listAlarms,
+        byte acceptedAcknowledgement,
+        byte failedAcknowledgement,
+        GemClockCodec clockCodec)
+        : this(
+            establishCommunication,
+            areYouOnline,
+            requestOnline,
+            requestOffline,
+            readStatusVariables,
+            readEquipmentConstants,
+            getClock,
+            setClock,
+            defineReports,
+            linkEventReports,
+            collectionEvent,
+            alarmNotification,
+            remoteCommand,
+            listAlarms,
+            BaselineAlarmSendControl,
+            BaselineAlarmControlCodec,
+            acceptedAcknowledgement,
+            failedAcknowledgement,
+            clockCodec)
+    {
+    }
+
     /// <summary>Creates an explicit foundational message profile.</summary>
     public GemMessageProfile(
         GemMessagePair establishCommunication,
@@ -155,6 +204,8 @@ public sealed class GemMessageProfile
         GemMessagePair alarmNotification,
         GemMessagePair remoteCommand,
         GemMessagePair listAlarms,
+        GemMessagePair alarmSendControl,
+        GemAlarmControlCodec alarmControlCodec,
         byte acceptedAcknowledgement,
         byte failedAcknowledgement,
         GemClockCodec clockCodec)
@@ -180,7 +231,8 @@ public sealed class GemMessageProfile
             collectionEvent,
             alarmNotification,
             remoteCommand,
-            listAlarms);
+            listAlarms,
+            alarmSendControl);
         EstablishCommunication = establishCommunication;
         AreYouOnline = areYouOnline;
         RequestOnline = requestOnline;
@@ -195,6 +247,9 @@ public sealed class GemMessageProfile
         AlarmNotification = alarmNotification;
         RemoteCommand = remoteCommand;
         ListAlarms = listAlarms;
+        AlarmSendControl = alarmSendControl;
+        AlarmControlCodec = alarmControlCodec ??
+            throw new ArgumentNullException(nameof(alarmControlCodec));
         AcceptedAcknowledgement = acceptedAcknowledgement;
         FailedAcknowledgement = failedAcknowledgement;
         ClockCodec = clockCodec ?? throw new ArgumentNullException(nameof(clockCodec));
@@ -241,6 +296,12 @@ public sealed class GemMessageProfile
 
     /// <summary>Gets the alarm-list request/reply message pair.</summary>
     public GemMessagePair ListAlarms { get; }
+
+    /// <summary>Gets the alarm-send control request/reply message pair.</summary>
+    public GemMessagePair AlarmSendControl { get; }
+
+    /// <summary>Gets the explicit alarm-send control-code mapping.</summary>
+    public GemAlarmControlCodec AlarmControlCodec { get; }
 
     /// <summary>Gets the configured successful acknowledgement byte.</summary>
     public byte AcceptedAcknowledgement { get; }

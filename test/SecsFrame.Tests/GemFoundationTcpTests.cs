@@ -15,6 +15,7 @@ public sealed class GemFoundationTcpTests
         await AssertDynamicDataAsync(context).ConfigureAwait(true);
         await AssertCollectionEventsAsync(context).ConfigureAwait(true);
         await AssertAlarmCatalogAsync(context).ConfigureAwait(true);
+        await AssertAlarmSendControlAsync(context).ConfigureAwait(true);
         await AssertAlarmNotificationsAsync(context).ConfigureAwait(true);
         await AssertRemoteCommandsAsync(context).ConfigureAwait(true);
         await AssertClockAsync(context).ConfigureAwait(true);
@@ -307,6 +308,66 @@ public sealed class GemFoundationTcpTests
         var remaining = await context.HostServices.ListAlarmsAsync(
             cancellationToken: context.Token).ConfigureAwait(true);
         Assert.Equal(SecsItem.U2(3002), Assert.Single(remaining).AlarmId);
+    }
+
+    private static async Task AssertAlarmSendControlAsync(GemTcpContext context)
+    {
+        var alarmId = SecsItem.Ascii("CONTROLLED-01");
+        using var alarm = context.EquipmentServices.RegisterAlarm(
+            new GemAlarmDefinition(0x81, alarmId, "CONTROLLED ALARM"));
+
+        Assert.True(alarm.IsSendEnabled);
+        await context.HostServices.SetAlarmSendEnabledAsync(
+            alarmId,
+            enabled: false,
+            context.Token).ConfigureAwait(true);
+        Assert.False(alarm.IsSendEnabled);
+        Assert.Equal(
+            alarmId,
+            Assert.Single(await context.HostServices.ListAlarmsAsync(
+                cancellationToken: context.Token).ConfigureAwait(true)).AlarmId);
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => context.EquipmentServices.SendAlarmNotificationAsync(
+                new GemAlarmNotification(0x81, alarmId, "CONTROLLED ALARM"),
+                context.Token)).ConfigureAwait(true);
+
+        await context.HostServices.SetAlarmSendEnabledAsync(
+            alarmId,
+            enabled: true,
+            context.Token).ConfigureAwait(true);
+        Assert.True(alarm.IsSendEnabled);
+        var received = new TaskCompletionSource<GemAlarmNotification>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using (context.HostServices.RegisterAlarmNotificationHandler(
+            (notification, cancellationToken) =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                received.TrySetResult(notification);
+                return new ValueTask<bool>(true);
+            }))
+        {
+            await context.EquipmentServices.SendAlarmNotificationAsync(
+                new GemAlarmNotification(0x81, alarmId, "CONTROLLED ALARM"),
+                context.Token).ConfigureAwait(true);
+        }
+
+        Assert.Equal(alarmId, (await received.Task.ConfigureAwait(true)).AlarmId);
+        var rejected = await Assert.ThrowsAsync<GemRequestRejectedException>(
+            () => context.HostServices.SetAlarmSendEnabledAsync(
+                SecsItem.U2(404),
+                enabled: false,
+                context.Token)).ConfigureAwait(true);
+        Assert.Equal(GemOperation.SetAlarmSendEnabled, rejected.Operation);
+        Assert.Equal((byte)1, rejected.Acknowledgement);
+
+        await context.HostServices.SetAlarmSendEnabledAsync(
+            alarmId,
+            enabled: false,
+            context.Token).ConfigureAwait(true);
+        alarm.Dispose();
+        using var replacement = context.EquipmentServices.RegisterAlarm(
+            new GemAlarmDefinition(0x81, alarmId, "CONTROLLED ALARM"));
+        Assert.True(replacement.IsSendEnabled);
     }
 
     private static async Task AssertRemoteCommandsAsync(GemTcpContext context)

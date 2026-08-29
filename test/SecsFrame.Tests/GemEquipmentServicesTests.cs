@@ -149,6 +149,51 @@ public sealed class GemEquipmentServicesTests
     }
 
     [Fact]
+    public async Task Alarm_send_control_vectors_require_exact_configured_shape()
+    {
+        await using var endpoint = new SecsEquipment(
+            CreateOptions(GetFreePort(), HsmsConnectionMode.Active));
+        using var services = new GemEquipmentServices(
+            endpoint,
+            new GemIdentity("EQ-01", "1.0"),
+            new TestGemClock(Epoch));
+        var alarmId = SecsItem.U2(3001);
+        var body = SecsItem.List(SecsItem.Binary(0x80), alarmId);
+
+        await Assert.ThrowsAsync<GemProtocolException>(() => DispatchAsync(
+            services,
+            new SecsMessage(5, 3, rootItem: body))).ConfigureAwait(true);
+        await Assert.ThrowsAsync<GemProtocolException>(() => DispatchAsync(
+            services,
+            new SecsMessage(5, 3, true, SecsItem.List())))
+            .ConfigureAwait(true);
+        await Assert.ThrowsAsync<GemProtocolException>(() => DispatchAsync(
+            services,
+            new SecsMessage(
+                5,
+                3,
+                true,
+                SecsItem.List(SecsItem.U1(0x80), alarmId))))
+            .ConfigureAwait(true);
+        await Assert.ThrowsAsync<GemProtocolException>(() => DispatchAsync(
+            services,
+            new SecsMessage(
+                5,
+                3,
+                true,
+                SecsItem.List(SecsItem.Binary(0x80, 0x00), alarmId))))
+            .ConfigureAwait(true);
+        await Assert.ThrowsAsync<GemProtocolException>(() => DispatchAsync(
+            services,
+            new SecsMessage(
+                5,
+                3,
+                true,
+                SecsItem.List(SecsItem.Binary(0x7F), alarmId))))
+            .ConfigureAwait(true);
+    }
+
+    [Fact]
     public async Task Dynamic_registration_is_exact_disposable_and_replaceable()
     {
         await using var endpoint = new SecsEquipment(
@@ -243,11 +288,13 @@ public sealed class GemEquipmentServicesTests
 
         var first = services.RegisterAlarm(definition);
         Assert.Equal(definition.AlarmId, first.AlarmId);
+        Assert.True(first.IsSendEnabled);
         Assert.Throws<InvalidOperationException>(() =>
             services.RegisterAlarm(definition));
         first.Dispose();
         first.Dispose();
         using var replacement = services.RegisterAlarm(definition);
+        Assert.True(replacement.IsSendEnabled);
         services.Dispose();
         Assert.Throws<ObjectDisposedException>(() =>
             services.RegisterAlarm(new GemAlarmDefinition(
