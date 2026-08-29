@@ -458,6 +458,47 @@ public sealed class StreamFrameHsmsTransportTests
         await events.DisposeAsync().ConfigureAwait(true);
     }
 
+    [Fact]
+    public async Task Real_passive_reconnect_race_keeps_listener_available()
+    {
+        var port = GetFreePort();
+        await using var transport = StreamFrameHsmsTransport.Create(
+            IPAddress.Loopback,
+            port,
+            isActive: false,
+            new HsmsTransportOptions(T5, T8),
+            new StreamConnectionOptions
+            {
+                AcceptRetryDelayMs = 10,
+                ConnectRetryDelayMs = 10,
+            });
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var events = transport.GetEventsAsync(cancellation.Token).GetAsyncEnumerator();
+        transport.Start(cancellation.Token);
+        var previousSessionId = new HsmsTransportSessionId(0);
+
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            using var client = await ConnectWithRetryAsync(
+                port,
+                cancellation.Token).ConfigureAwait(true);
+            var opened = await NextAsync(events).ConfigureAwait(true);
+            Assert.Equal(HsmsTransportEventKind.SessionOpened, opened.Kind);
+            Assert.True(opened.SessionId.Value > previousSessionId.Value);
+
+            var explicitClose = Task.Run(
+                () => transport.TryCloseSession(opened.SessionId));
+            client.Dispose();
+            _ = await explicitClose.ConfigureAwait(true);
+            var closed = await NextAsync(events).ConfigureAwait(true);
+            Assert.Equal(HsmsTransportEventKind.SessionClosed, closed.Kind);
+            Assert.Equal(opened.SessionId, closed.SessionId);
+            previousSessionId = opened.SessionId;
+        }
+
+        await events.DisposeAsync().ConfigureAwait(true);
+    }
+
     private static StreamFrameHsmsTransport CreateTransport(
         FakeStreamConnection connection)
         => new(connection);
@@ -504,6 +545,43 @@ public sealed class StreamFrameHsmsTransportTests
         var port = ((IPEndPoint)listener.LocalEndpoint).Port;
         listener.Stop();
         return port;
+    }
+
+    private static async Task<System.Net.Sockets.TcpClient> ConnectWithRetryAsync(
+        int port,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; attempt < 100; attempt++)
+        {
+            var client = new System.Net.Sockets.TcpClient();
+            try
+            {
+                var connect = client.ConnectAsync(IPAddress.Loopback, port);
+                var completed = await Task.WhenAny(
+                    connect,
+                    Task.Delay(
+                        TimeSpan.FromSeconds(2),
+                        cancellationToken)).ConfigureAwait(false);
+                if (!ReferenceEquals(connect, completed))
+                {
+                    client.Dispose();
+                    throw new TimeoutException(
+                        "The passive listener accepted no connection.");
+                }
+
+                await connect.ConfigureAwait(false);
+                return client;
+            }
+            catch (System.Net.Sockets.SocketException)
+            {
+                client.Dispose();
+                await Task.Delay(
+                    TimeSpan.FromMilliseconds(10),
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        throw new TimeoutException("The passive listener did not become available.");
     }
 
     private static async Task<byte[]> ReadExactlyAsync(
