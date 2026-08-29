@@ -18,6 +18,7 @@ public sealed class GemEquipmentServices : IDisposable
     private readonly Dictionary<SecsItem, GemEventReportLink> _eventReportLinks = new();
     private readonly Dictionary<SecsItem, GemAlarmRegistration> _alarms = new();
     private readonly List<GemAlarmRegistration> _alarmCatalog = new();
+    private GemOnlineStateTransitionRegistration? _onlineStateTransitionHandler;
     private GemRemoteCommandRegistration? _remoteCommandHandler;
     private int _disposed;
 
@@ -91,6 +92,33 @@ public sealed class GemEquipmentServices : IDisposable
             identifier,
             provider,
             "equipment constant");
+
+    /// <summary>
+    /// Registers the single application policy for Host-requested online-state
+    /// transitions.
+    /// </summary>
+    public GemOnlineStateTransitionRegistration RegisterOnlineStateTransitionHandler(
+        GemOnlineStateTransitionHandler handler)
+    {
+        if (handler is null)
+            throw new ArgumentNullException(nameof(handler));
+
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            if (_onlineStateTransitionHandler is not null)
+            {
+                throw new InvalidOperationException(
+                    "An online-state transition handler is already registered.");
+            }
+
+            var registration = new GemOnlineStateTransitionRegistration(
+                handler,
+                UnregisterOnlineStateTransitionHandler);
+            _onlineStateTransitionHandler = registration;
+            return registration;
+        }
+    }
 
     /// <summary>Registers the single application remote-command handler.</summary>
     public GemRemoteCommandRegistration RegisterRemoteCommandHandler(
@@ -238,6 +266,7 @@ public sealed class GemEquipmentServices : IDisposable
             _eventReportLinks.Clear();
             _alarms.Clear();
             _alarmCatalog.Clear();
+            _onlineStateTransitionHandler = null;
             _remoteCommandHandler = null;
         }
         _services.Dispose();
@@ -288,13 +317,27 @@ public sealed class GemEquipmentServices : IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         GemMessageCodec.RequireReplyExpected(context, operation);
         GemMessageCodec.RequireEmptyBody(context.Message.RootItem, operation);
+        GemOnlineState currentState;
+        GemOnlineStateTransitionHandler? handler;
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            currentState = OnlineState;
+            handler = _onlineStateTransitionHandler?.Handler;
+        }
+
+        var accepted = handler is null ||
+            await handler(currentState, state, cancellationToken).ConfigureAwait(false);
         await _services.ReplyAsync(
             context,
             pair,
             GemMessageCodec.EncodeAcknowledgement(
-                Profile.AcceptedAcknowledgement),
+                accepted
+                    ? Profile.AcceptedAcknowledgement
+                    : Profile.FailedAcknowledgement),
             cancellationToken).ConfigureAwait(false);
-        _services.SetOnlineState(state);
+        if (accepted)
+            _services.SetOnlineState(state);
         return null;
     }
 
@@ -728,6 +771,16 @@ public sealed class GemEquipmentServices : IDisposable
         {
             if (ReferenceEquals(_remoteCommandHandler, registration))
                 _remoteCommandHandler = null;
+        }
+    }
+
+    private void UnregisterOnlineStateTransitionHandler(
+        GemOnlineStateTransitionRegistration registration)
+    {
+        lock (_gate)
+        {
+            if (ReferenceEquals(_onlineStateTransitionHandler, registration))
+                _onlineStateTransitionHandler = null;
         }
     }
 

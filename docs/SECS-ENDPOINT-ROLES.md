@@ -61,9 +61,10 @@ await equipment.WaitUntilSelectedAsync(cancellationToken);
 <code>SecsHost</code> 或 <code>SecsEquipment</code> 类型提供不同业务能力，
 而不是修改 HSMS 状态机或根据 Active/Passive 猜测角色。
 
-当前 GEM 切片已实现工程配置下的通讯建立、在线状态、变量、设备常量、
-时钟、报告定义、事件链接、Collection Event，以及最小报警通知和远程命令；
+当前 GEM 切片已实现工程配置下的通讯建立、在线状态与应用转换策略、变量、
+设备常量、时钟、报告定义、事件链接、Collection Event，以及最小报警通知
+和远程命令；
 报警目录查询支持运行期注册，Host 也可启停单个已注册报警的通知发送。
-报警历史/批量控制、命令目录/权限/调度仍未实现。相关行为、事件循环要求和
-未核对边界见
+通讯建立拒绝、自动重新建立、业务消息状态门控、报警历史/批量控制、命令
+目录/权限/调度仍未实现。相关行为、事件循环要求和未核对边界见
 [GEM-FOUNDATION.md](GEM-FOUNDATION.md)，项目不声明 GEM 合规。
