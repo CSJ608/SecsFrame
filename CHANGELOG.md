@@ -21,6 +21,9 @@
 
 ### 新增
 
+- 增加真实 TCP Active/Passive 重复会话抖动故障注入测试；固定三轮断开与
+  重选并复用相同 System Bytes，验证待处理事务确定中断、旧回复与强制迟到
+  T3 回调不污染替换会话，且新事务可成功完成。
 - 增加默认关闭的独立 T8 transport fault 观测流，保留 StreamFrame TCP
   Session ID、actor 状态与最多 8 KiB 的未完成帧前缀快照。
 - T8 观测队列容量显式可配且满时丢弃最旧项，不阻塞协议 actor；默认路径

@@ -29,9 +29,13 @@ GitHub Issue/Actions：
   诊断/控制元数据 Trace、解码失败样本和 T8 前缀快照均已落地。
 - T8 故障观测默认关闭、队列有界，最多保存 StreamFrame 提供的 8 KiB
   前缀；它不是完整 TCP 片段，也不能进入消息重放路径。
-- SecsFrame 当前没有开放 Issue。PR #40 合并后的 `ci` 与 `codeql` 均通过。
+- 真实 TCP Active/Passive 事务测试固定重复三次断开和重选，复用相同
+  System Bytes 并强制投递旧 T3 回调，验证旧回复、旧计时器和待处理事务
+  不会污染替换会话。
+- SecsFrame 当前没有开放 Issue。当前 `main` 提交 `8fc4599`（PR #41）的
+  `ci` 与 `codeql` 均通过。
 - 最近一次完整本地验证中，核心测试在 `net48`、`net8.0`、`net10.0` 各
-  通过 273 项；官方 secs4net 互操作测试在 `net8.0`、`net10.0` 各通过
+  通过 274 项；官方 secs4net 互操作测试在 `net8.0`、`net10.0` 各通过
   2 项。
 
 所有新提交仍须重新运行：
@@ -45,8 +49,10 @@ dotnet test SecsFrame.slnx -c Release --no-build
 
 ### StreamFrame 错误归属
 
-[StreamFrame #56](https://github.com/CSJ608/StreamFrame/issues/56) 已得到维护者
-接受，正在实现。评审建议在 StreamFrame `2.6.0` 提供：
+[StreamFrame #56](https://github.com/CSJ608/StreamFrame/issues/56) 已由
+[PR #57](https://github.com/CSJ608/StreamFrame/pull/57) 实现并关闭，但截至
+2026-08-29，最新 GitHub Release 与 nuget.org 官方包仍为 `2.5.0`。上游
+计划在 StreamFrame `2.6.0` 提供：
 
 - `FrameError` 的原始 transport Session ID；
 - 错误发生时的实际观测字节数；
@@ -79,11 +85,8 @@ dotnet test SecsFrame.slnx -c Release --no-build
 
 ## 等待期间的下一优先级
 
-不依赖 StreamFrame #56 或新增标准语义的下一项，是补充 `1.0` 发布门槛中的
-确定性故障注入证据。
-
-建议的最小垂直切片是“重复会话抖动下的事务恢复”：在真实 TCP
-Active/Passive 端点的同一生命周期中，固定次数重复执行连接、Select、
+不依赖 StreamFrame 新包或新增标准语义的确定性故障注入基线已经补齐：
+真实 TCP Active/Passive 端点在同一生命周期中固定重复三次连接、Select、
 Primary/Secondary、断开和重选，并验证：
 
 - 每一代会话只完成本代事务，旧回复和旧计时器不能污染新会话；
@@ -92,7 +95,9 @@ Primary/Secondary、断开和重选，并验证：
 - 测试时间有严格上限，可稳定进入现有普通 CI。
 
 这个切片只增加故障注入测试和必要的测试支撑，不改变协议默认值或公共 API。
-长时间 soak、随机网络故障和独立定时工作流应在该确定性基线稳定后另行评估。
+下一可执行项是评估不进入普通 CI 的独立定时工作流：先固定运行上限、随机
+种子、故障重现信息和产物保留边界，再增加长时间 soak 与随机网络故障。
+该工作流不得引入新的协议默认值，也不能替代确定性回归和完整普通 CI。
 
 ## 状态更新规则
 
