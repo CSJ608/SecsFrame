@@ -20,9 +20,11 @@
 ## 上游能力集成
 
 StreamFrame #38（未完成帧超时）与 #39（会话感知发送确认及消息上下文）
-已经随官方 StreamFrame 2.3.0 发布。SecsFrame 固定官方 2.3.1 NuGet 包，
-包含迟到旧会话故障隔离、排队发送 Session ID 复核和稳定失效异常修复，并由
-内部 <code>StreamFrameHsmsTransport</code> 使用原生会话 API；此前基于
+已经随官方 StreamFrame 2.3.0 发布，2.3.1 随后补充迟到旧会话故障隔离、
+排队发送 Session ID 复核和稳定失效异常修复。SecsFrame 当前固定官方
+2.4.0 NuGet 包，进一步收口 Connected 发布点的会话 epoch，加固 Passive
+接受重试与监听端口重绑。内部
+<code>StreamFrameHsmsTransport</code> 使用原生会话 API；此前基于
 原始字节回调、发送信封和自建 Session ID 的临时实现已经删除。
 
 这不是设备兼容模式：
