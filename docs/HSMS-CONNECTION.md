@@ -83,6 +83,12 @@ var secondary = await connection.SendAsync(
 - <code>ControlMessageReceived</code>：未被当前控制或数据事务认领的帧；
 - <code>DataMessageDecodeFailed</code>：原始帧和严格解码错误。
 
+调用方在自己的事件循环中可以使用
+<code>SecsTraceControlRecord.CreateReceived</code> 对
+<code>ControlMessageReceived</code> 创建不含 Body 的头元数据快照。该事件
+不包含已被内部 Select、Linktest、Deselect 或数据事务认领的控制消息，
+因此快照不是完整控制面抓包。格式与安全边界见 [TRACE.md](TRACE.md)。
+
 带错误的状态事件和解码失败事件还会提供可选
 <code>HsmsDiagnostic</code>，用于按稳定代码、层级、操作与计时器处理，
 无需解析异常消息。调用任务抛出的异常可通过
