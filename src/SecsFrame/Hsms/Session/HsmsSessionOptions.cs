@@ -5,7 +5,8 @@ internal sealed class HsmsSessionOptions
     public HsmsSessionOptions(
         HsmsConnectionMode connectionMode,
         TimeSpan controlReplyTimeout,
-        TimeSpan selectionTimeout)
+        TimeSpan selectionTimeout,
+        bool enableControlMessageObservation = false)
     {
         if (connectionMode != HsmsConnectionMode.Active &&
             connectionMode != HsmsConnectionMode.Passive)
@@ -35,6 +36,7 @@ internal sealed class HsmsSessionOptions
         ConnectionMode = connectionMode;
         ControlReplyTimeout = controlReplyTimeout;
         SelectionTimeout = selectionTimeout;
+        EnableControlMessageObservation = enableControlMessageObservation;
     }
 
     public HsmsConnectionMode ConnectionMode { get; }
@@ -42,4 +44,6 @@ internal sealed class HsmsSessionOptions
     public TimeSpan ControlReplyTimeout { get; }
 
     public TimeSpan SelectionTimeout { get; }
+
+    public bool EnableControlMessageObservation { get; }
 }

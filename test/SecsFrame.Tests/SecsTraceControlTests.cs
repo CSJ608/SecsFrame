@@ -48,6 +48,31 @@ public sealed class SecsTraceControlTests
     }
 
     [Fact]
+    public void Observation_factory_maps_direction_state_and_original_header()
+    {
+        var header = HsmsMessageHeader.CreateControl(
+            HsmsMessageType.LinktestRequest,
+            0x10203040);
+        var observation = new HsmsControlMessageObservation(
+            HsmsControlMessageDirection.Sent,
+            HsmsSessionState.Selected,
+            header);
+
+        var record = SecsTraceControlRecord.Create(Epoch, observation);
+
+        Assert.Equal(SecsTraceDirection.Sent, record.Direction);
+        Assert.Equal(HsmsSessionState.Selected, record.State);
+        Assert.Equal(header.SessionId, record.ProtocolSessionId);
+        Assert.Equal(header.HeaderByte2, record.HeaderByte2);
+        Assert.Equal(header.HeaderByte3, record.HeaderByte3);
+        Assert.Equal(header.PresentationType, record.PresentationType);
+        Assert.Equal((byte)header.MessageType, record.MessageType);
+        Assert.Equal(header.SystemBytes, record.SystemBytes);
+        Assert.Throws<ArgumentNullException>(
+            () => SecsTraceControlRecord.Create(Epoch, null!));
+    }
+
+    [Fact]
     public void Factories_reject_data_frames_and_non_control_events()
     {
         var dataFrame = new HsmsFrame(

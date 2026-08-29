@@ -553,10 +553,15 @@ public sealed partial class HsmsSessionStateMachineTests
         FakeHsmsTransport transport,
         HsmsConnectionMode mode,
         ManualTimerFactory timers,
-        IHsmsSystemBytesProvider? systemBytesProvider = null)
+        IHsmsSystemBytesProvider? systemBytesProvider = null,
+        bool enableControlMessageObservation = false)
         => new(
             transport,
-            new HsmsSessionOptions(mode, T6, T7),
+            new HsmsSessionOptions(
+                mode,
+                T6,
+                T7,
+                enableControlMessageObservation),
             timers,
             systemBytesProvider);
 
@@ -615,6 +620,21 @@ public sealed partial class HsmsSessionStateMachineTests
 
         Assert.Fail("The expected HSMS session event was not received.");
         return default;
+    }
+
+    private static async Task<HsmsControlMessageObservation>
+        NextControlObservationAsync(
+            IAsyncEnumerator<HsmsControlMessageObservation> observations,
+            Func<HsmsControlMessageObservation, bool> predicate)
+    {
+        while (await observations.MoveNextAsync().ConfigureAwait(true))
+        {
+            if (predicate(observations.Current))
+                return observations.Current;
+        }
+
+        Assert.Fail("The expected HSMS control-message observation was not received.");
+        return null!;
     }
 
     private static async Task WaitUntilAsync(

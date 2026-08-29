@@ -19,8 +19,9 @@ Trace 的时序重放必须显式启用，只在允许发送记录之间等待�
 发送 API 创建新事务；默认重放不引入时间等待。
 结构化诊断使用独立只读快照信封：只复制公共诊断的稳定标量，明确排除原
 异常和未解码帧，也不能进入重放路径。
-控制消息使用另一个只读元数据信封，只从调用方已消费的公共未认领控制事件
-复制十字节头字段；它不增加内部控制面观察者，也不代表完整握手抓包。
+控制消息使用另一个只读元数据信封。核心连接可显式启用独立控制观测流，
+从会话 actor 复制全部收发控制消息的十字节头字段；Trace 仍由调用方消费
+该流并创建记录，不自行订阅连接。既有公共未认领控制事件工厂继续可用。
 
 ## 核心原则
 
@@ -128,6 +129,11 @@ Selected 转发数据消息；提前到达的数据、可识别的不支持类�
 无法由会话层认领的 Reject 作为 <code>ControlMessageReceived</code>
 事件向上转发，供数据事务 actor 关联，不会被静默丢弃。
 
+可选控制观测通道也由同一 actor 写入：非 Data Message 的入站头在协议
+验证和状态转换前记录，出站头只在绑定当前会话的整帧发送成功后记录。
+通道默认不创建，记录不含 Body、原始字节、transport Session generation
+或时间戳；它是诊断元数据边界，不参与协议决策。
+
 ### 会话绑定的数据事务
 
 内部 <code>HsmsDataTransactionManager</code> 独占消费会话事件，并把
@@ -152,7 +158,8 @@ HSMS 头 Session ID 与 System Bytes。没有 W-Bit 的出站消息在写出后
 <code>HsmsConnection</code> 是运输、会话和数据事务 actor 之上的薄公共
 组合层。它要求显式网络、协议 Session ID 和 T3/T5/T6/T7/T8 配置，公开
 动态消息发送、一次性入站回复、控制命令、Selected 等待和单消费者事件
-流。公共层不暴露 transport Session generation、StreamFrame
+流，并可显式启用与业务事件独立的单消费者控制元数据观测流。公共层不暴露
+transport Session generation、StreamFrame
 <code>StreamConnectionOptions</code> 或 StreamFrame 的会话感知接口。
 
 连接内部独占消费事务事件，并分别更新状态等待信号与公共事件 channel，
@@ -172,6 +179,6 @@ HSMS 头 Session ID 与 System Bytes。没有 W-Bit 的出站消息在写出后
   公共发送 API，不得直接构造或写出保留旧事务标识的线上帧；可选时序只
   控制相邻发送前的等待，不得绕过连接状态、T3 或显式 allowlist。诊断
   导出不得隐式包含 <code>Exception</code> 或 <code>HsmsFrame</code>；控制
-  元数据导出不得包含 Body 或隐式订阅连接事件流。
+  元数据导出不得包含 Body 或隐式订阅任何连接流。
 - 核心包不得依赖 GEM、SML/SMN、依赖注入容器或具体日志实现。
 - 状态机计时使用可替换的时间抽象，测试不得依赖真实长时间等待。

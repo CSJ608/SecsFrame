@@ -12,6 +12,7 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
     private readonly IHsmsSystemBytesProvider _systemBytesProvider;
     private readonly Channel<MachineInput> _inputs;
     private readonly Channel<HsmsSessionEvent> _events;
+    private readonly Channel<HsmsControlMessageObservation>? _controlMessageObservations;
     private readonly HashSet<PendingDataSend> _pendingDataSends = new();
     private CancellationTokenSource? _lifetime;
     private Task? _transportPump;
@@ -50,6 +51,17 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
             SingleWriter = true,
             AllowSynchronousContinuations = false,
         });
+        if (options.EnableControlMessageObservation)
+        {
+            _controlMessageObservations =
+                Channel.CreateUnbounded<HsmsControlMessageObservation>(
+                    new UnboundedChannelOptions
+                    {
+                        SingleReader = true,
+                        SingleWriter = true,
+                        AllowSynchronousContinuations = false,
+                    });
+        }
     }
 
     public HsmsSessionState State
@@ -84,6 +96,21 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
         {
             while (reader.TryRead(out var sessionEvent))
                 yield return sessionEvent;
+        }
+    }
+
+    public async IAsyncEnumerable<HsmsControlMessageObservation>
+        GetControlMessageObservationsAsync(
+            [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var observations = _controlMessageObservations ??
+            throw new InvalidOperationException(
+                "HSMS control-message observation is not enabled.");
+        var reader = observations.Reader;
+        while (await reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            while (reader.TryRead(out var observation))
+                yield return observation;
         }
     }
 
@@ -182,6 +209,7 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
         _pendingControlCommand?.Completion.TrySetCanceled();
         _separateCompletion?.TrySetCanceled();
         _events.Writer.TryComplete();
+        _controlMessageObservations?.Writer.TryComplete();
         _lifetime?.Dispose();
     }
 
@@ -234,6 +262,7 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
             CancelT6();
             CancelT7();
             _events.Writer.TryComplete();
+            _controlMessageObservations?.Writer.TryComplete();
         }
     }
 
@@ -370,6 +399,13 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
     private void ProcessFrame(HsmsFrame frame)
     {
         var header = frame.Header;
+        if (!header.IsDataMessage)
+        {
+            ObserveControlMessage(
+                HsmsControlMessageDirection.Received,
+                header);
+        }
+
         if (header.PresentationType != 0)
         {
             SendReject(header, HsmsRejectReason.UnsupportedPresentationType);
@@ -644,6 +680,10 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
         if (operation.SessionId != _sessionId)
             return;
 
+        ObserveControlMessage(
+            HsmsControlMessageDirection.Sent,
+            CreateControlHeader(operation));
+
         switch (operation.Purpose)
         {
             case SendPurpose.SelectRequest:
@@ -862,6 +902,14 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
 
     private void StartControlSend(SendOperation operation)
     {
+        var frame = new HsmsFrame(CreateControlHeader(operation));
+
+        _ = SendControlAsync(operation, frame);
+    }
+
+    private static HsmsMessageHeader CreateControlHeader(
+        SendOperation operation)
+    {
         var messageType = operation.Purpose switch
         {
             SendPurpose.SelectRequest => HsmsMessageType.SelectRequest,
@@ -893,11 +941,14 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
                 messageType,
                 operation.SystemBytes,
                 operation.HeaderByte3);
-        var frame = new HsmsFrame(
-            header);
-
-        _ = SendControlAsync(operation, frame);
+        return header;
     }
+
+    private void ObserveControlMessage(
+        HsmsControlMessageDirection direction,
+        HsmsMessageHeader header)
+        => _controlMessageObservations?.Writer.TryWrite(
+            new HsmsControlMessageObservation(direction, State, header));
 
     private async Task SendControlAsync(SendOperation operation, HsmsFrame frame)
     {

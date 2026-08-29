@@ -9,7 +9,8 @@
 - 只选择显式允许的本地发送记录，并通过正常公共发送 API 串行重放；
 - 可选按缩放且封顶的源时间间隔执行受控时序重放；
 - 不包含异常和原始帧的结构化 HSMS 诊断快照导出与严格读取；
-- 公共未认领控制事件的十字节头元数据导出与严格读取。
+- 显式启用的完整控制观测或公共未认领控制事件的十字节头元数据导出与
+  严格读取。
 
 当前切片不是原始网络抓包器，不记录 TCP 字节、transport Session generation、
 控制帧的线上原始字节或异常对象，也不会接管 <code>HsmsConnection</code> 的
@@ -90,17 +91,18 @@ Session ID、System Bytes、远端状态字节和被拒绝的 SType。枚举只�
 与 <code>SecsFrame-Trace/1</code> 消息信封相互独立，不能交给重放器。协议
 标识和状态字节仍是运维元数据；存储和共享文件时仍需执行访问控制与保留策略。
 
-## 未认领控制消息元数据
+## 控制消息元数据
 
-应用在自己的连接事件循环中可以对
-<code>ControlMessageReceived</code> 创建只包含头字段的快照：
+推荐在连接选项中显式启用完整控制观测，并由应用持续消费独立流后创建只
+包含头字段的快照：
 
 ~~~csharp
-if (connectionEvent.Kind == HsmsConnectionEventKind.ControlMessageReceived)
+await foreach (var observation in connection
+    .GetControlMessageObservationsAsync(cancellationToken))
 {
-    var record = SecsTraceControlRecord.CreateReceived(
+    var record = SecsTraceControlRecord.Create(
         DateTimeOffset.UtcNow,
-        connectionEvent);
+        observation);
     var text = new SecsTraceControlCodec().Encode(new[] { record });
 }
 ~~~
@@ -117,10 +119,17 @@ Session ID、Header Byte 2、Header Byte 3、PType、SType 和 System Bytes。
 字节字段使用固定宽度大写十六进制。SType 以原始字节保存：<code>0x00</code>
 因表示 Data Message 而拒绝，未知非零值允许严格往返，便于保留互操作证据。
 
-控制帧按核心模型不能携带 Body，快照类型也没有 Body 字段。当前公共事件只
-转发未被 Select、Linktest、Deselect 或数据事务认领的控制帧，主要用于未匹配
-Reject；这个工具不会订阅内部状态机，也不是完整控制面抓包。控制信封不能
-进入消息重放器，头字段仍应按运维元数据执行访问控制与保留策略。
+控制帧按核心模型不能携带 Body，快照类型也没有 Body 字段。完整观测流默认
+关闭，启用后覆盖内部 Select、Linktest、Deselect、Reject 与 Separate：
+入站记录发生在协议处理前，出站只记录成功写出的帧。Trace 工具不会自行
+订阅该单消费者流，也不提供原始线上字节或 transport Session generation。
+极快响应与本地发送完成回调可能以不同顺序进入 actor，因此记录顺序不是
+PCAP 级线上时序；需要线速证据时不能从本元数据流推断字节先后。
+
+既有 <code>SecsTraceControlRecord.CreateReceived</code> 仍可从业务事件流的
+<code>ControlMessageReceived</code> 创建快照，但该事件只转发未被会话或
+数据事务认领的控制帧，主要用于未匹配 Reject。两条创建路径生成同一信封；
+控制信封不能进入消息重放器，头字段仍应按运维元数据执行访问控制与保留策略。
 
 ## 结构化脱敏
 
@@ -213,5 +222,5 @@ var results = await new SecsTraceReplayer().ReplayWithTimingAsync(
 测试还验证重新分配 Session ID/System Bytes 并获得新 Secondary。它证明
 当前工具组合边界，不代表设备命令安全性或 SEMI 一致性认证。诊断信封另有
 黄金向量、可选字段往返、严格枚举/十六进制、资源限制及异常/帧内容不泄漏
-测试。控制信封另有未匹配 Reject 黄金向量、未知 SType 往返、Data Message
-拒绝、严格字段与资源限制测试。
+测试。控制信封另有完整 Select/Linktest 双向观测、未匹配 Reject 黄金向量、
+未知 SType 往返、Data Message 拒绝、严格字段与资源限制测试。

@@ -18,6 +18,9 @@ public sealed class HsmsConnectionOptions
     /// <param name="t6">The control transaction reply timeout.</param>
     /// <param name="t7">The selection timeout after TCP connection.</param>
     /// <param name="t8">The positive whole-millisecond incomplete-message receive timeout.</param>
+    /// <param name="enableControlMessageObservation">
+    /// Enables the separate restricted-metadata control-message observation stream.
+    /// </param>
     public HsmsConnectionOptions(
         IPAddress ipAddress,
         int port,
@@ -27,7 +30,8 @@ public sealed class HsmsConnectionOptions
         TimeSpan t5,
         TimeSpan t6,
         TimeSpan t7,
-        TimeSpan t8)
+        TimeSpan t8,
+        bool enableControlMessageObservation = false)
     {
         IpAddress = ipAddress ?? throw new ArgumentNullException(nameof(ipAddress));
         if (port is < 1 or > ushort.MaxValue)
@@ -69,6 +73,7 @@ public sealed class HsmsConnectionOptions
         T6 = t6;
         T7 = t7;
         T8 = t8;
+        EnableControlMessageObservation = enableControlMessageObservation;
     }
 
     /// <summary>Gets the remote or local bind IP address.</summary>
@@ -97,6 +102,11 @@ public sealed class HsmsConnectionOptions
 
     /// <summary>Gets the incomplete-message receive timeout.</summary>
     public TimeSpan T8 { get; }
+
+    /// <summary>
+    /// Gets whether the separate control-message metadata stream is enabled.
+    /// </summary>
+    public bool EnableControlMessageObservation { get; }
 
     private static void ValidatePositive(
         TimeSpan value,

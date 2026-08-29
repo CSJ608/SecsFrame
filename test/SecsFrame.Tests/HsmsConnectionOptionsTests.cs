@@ -28,6 +28,25 @@ public sealed class HsmsConnectionOptionsTests
         Assert.Equal(TimeSpan.FromSeconds(5), options.T6);
         Assert.Equal(TimeSpan.FromSeconds(10), options.T7);
         Assert.Equal(TimeSpan.FromSeconds(5), options.T8);
+        Assert.False(options.EnableControlMessageObservation);
+    }
+
+    [Fact]
+    public void Control_message_observation_can_be_explicitly_enabled()
+    {
+        var options = new HsmsConnectionOptions(
+            IPAddress.Loopback,
+            5000,
+            HsmsConnectionMode.Active,
+            10,
+            TimeSpan.FromSeconds(45),
+            TimeSpan.FromSeconds(10),
+            TimeSpan.FromSeconds(5),
+            TimeSpan.FromSeconds(10),
+            TimeSpan.FromSeconds(5),
+            enableControlMessageObservation: true);
+
+        Assert.True(options.EnableControlMessageObservation);
     }
 
     [Fact]
