@@ -347,11 +347,17 @@ public sealed class GemEquipmentServicesTests
             services.RegisterRemoteCommand(command, null!));
         var first = services.RegisterRemoteCommand(command, handler);
         Assert.Equal(command, first.Command);
+        Assert.True(first.IsExecutionEnabled);
+        first.SetExecutionEnabled(false);
+        Assert.False(first.IsExecutionEnabled);
+        first.SetExecutionEnabled(true);
+        Assert.True(first.IsExecutionEnabled);
         Assert.Throws<InvalidOperationException>(() =>
             services.RegisterRemoteCommand(SecsItem.Ascii("START"), handler));
         first.Dispose();
         first.Dispose();
         using var replacement = services.RegisterRemoteCommand(command, handler);
+        Assert.True(replacement.IsExecutionEnabled);
         services.Dispose();
         Assert.Throws<ObjectDisposedException>(() =>
             services.RegisterRemoteCommand(SecsItem.U4(2), handler));
