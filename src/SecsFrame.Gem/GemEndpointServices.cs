@@ -73,6 +73,16 @@ internal sealed class GemEndpointServices : IDisposable
         return reply.Identity;
     }
 
+    internal async Task<GemIdentity> RestoreCommunicationAsync(
+        CancellationToken cancellationToken)
+    {
+        ThrowIfDisposed();
+        await _endpoint.WaitUntilSelectedAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return await EstablishCommunicationAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     internal GemCommunicationEstablishmentRegistration
         RegisterCommunicationEstablishmentHandler(
             GemCommunicationEstablishmentHandler handler)

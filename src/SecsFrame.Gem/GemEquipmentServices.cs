@@ -77,6 +77,14 @@ public sealed class GemEquipmentServices : IDisposable
         => _services.EstablishCommunicationAsync(cancellationToken);
 
     /// <summary>
+    /// Waits for HSMS selection, then makes one communication-establishment attempt.
+    /// </summary>
+    /// <remarks>This method does not retry or restore the local online state.</remarks>
+    public Task<GemIdentity> RestoreCommunicationAsync(
+        CancellationToken cancellationToken = default)
+        => _services.RestoreCommunicationAsync(cancellationToken);
+
+    /// <summary>
     /// Registers the single application policy for peer-requested communication
     /// establishment.
     /// </summary>
