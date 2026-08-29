@@ -77,6 +77,41 @@ public sealed class HsmsConnectionTests
             activeObservations).ConfigureAwait(true);
     }
 
+    [Fact]
+    public async Task Enabled_transport_fault_observation_captures_real_T8_prefix()
+    {
+        var port = GetFreePort();
+        await using var connection = new HsmsConnection(
+            CreateOptions(
+                port,
+                HsmsConnectionMode.Passive,
+                enableTransportFaultObservation: true,
+                t8: TimeSpan.FromMilliseconds(250)));
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        connection.Start();
+        await using var observations = connection
+            .GetTransportFaultObservationsAsync(cancellation.Token)
+            .GetAsyncEnumerator();
+        using var client = new System.Net.Sockets.TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, port).ConfigureAwait(true);
+        var prefix = new byte[] { 0x00, 0x00, 0x00, 0x0A, 0x00, 0x01 };
+
+        await client.GetStream().WriteAsync(
+            prefix,
+            0,
+            prefix.Length,
+            cancellation.Token).ConfigureAwait(true);
+        Assert.True(await observations.MoveNextAsync().ConfigureAwait(true));
+        var observation = observations.Current;
+
+        Assert.Equal(
+            HsmsTransportFaultKind.IncompleteFrameTimeout,
+            observation.Kind);
+        Assert.True(observation.TransportSessionId > 0);
+        Assert.Equal(HsmsSessionState.Connected, observation.State);
+        Assert.Equal(prefix, observation.Snapshot.ToArray());
+    }
+
     private static async Task AssertSelectObservationsAsync(
         IAsyncEnumerator<HsmsControlMessageObservation> passiveObservations,
         IAsyncEnumerator<HsmsControlMessageObservation> activeObservations)
@@ -249,6 +284,17 @@ public sealed class HsmsConnectionTests
     }
 
     [Fact]
+    public async Task Transport_fault_observation_is_disabled_by_default()
+    {
+        await using var connection = new HsmsConnection(
+            CreateOptions(GetFreePort(), HsmsConnectionMode.Active));
+        connection.Start();
+
+        Assert.Throws<InvalidOperationException>(
+            () => connection.GetTransportFaultObservationsAsync());
+    }
+
+    [Fact]
     public async Task Control_observation_enforces_one_reader_and_allows_replacement()
     {
         await using var connection = new HsmsConnection(
@@ -284,6 +330,41 @@ public sealed class HsmsConnectionTests
     }
 
     [Fact]
+    public async Task Transport_fault_observation_enforces_one_reader_and_allows_replacement()
+    {
+        await using var connection = new HsmsConnection(
+            CreateOptions(
+                GetFreePort(),
+                HsmsConnectionMode.Active,
+                enableTransportFaultObservation: true));
+        using var cancellation = new CancellationTokenSource();
+        connection.Start();
+        await using var first = connection
+            .GetTransportFaultObservationsAsync(cancellation.Token)
+            .GetAsyncEnumerator();
+        var firstRead = first.MoveNextAsync().AsTask();
+        var concurrent = connection
+            .GetTransportFaultObservationsAsync()
+            .GetAsyncEnumerator();
+        await using var concurrentScope = concurrent.ConfigureAwait(true);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => concurrent.MoveNextAsync().AsTask()).ConfigureAwait(true);
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => firstRead).ConfigureAwait(true);
+
+        using var replacementCancellation = new CancellationTokenSource(
+            TimeSpan.FromMilliseconds(100));
+        var replacement = connection
+            .GetTransportFaultObservationsAsync(replacementCancellation.Token)
+            .GetAsyncEnumerator();
+        await using var replacementScope = replacement.ConfigureAwait(true);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => replacement.MoveNextAsync().AsTask()).ConfigureAwait(true);
+    }
+
+    [Fact]
     public async Task Connection_rejects_commands_before_start_and_duplicate_start()
     {
         var connection = new HsmsConnection(
@@ -310,7 +391,9 @@ public sealed class HsmsConnectionTests
     private static HsmsConnectionOptions CreateOptions(
         int port,
         HsmsConnectionMode connectionMode,
-        bool enableControlMessageObservation = false)
+        bool enableControlMessageObservation = false,
+        bool enableTransportFaultObservation = false,
+        TimeSpan? t8 = null)
         => new(
             IPAddress.Loopback,
             port,
@@ -320,8 +403,9 @@ public sealed class HsmsConnectionTests
             t5: TimeSpan.FromMilliseconds(10),
             t6: TimeSpan.FromSeconds(5),
             t7: TimeSpan.FromSeconds(10),
-            t8: TimeSpan.FromSeconds(5),
-            enableControlMessageObservation: enableControlMessageObservation);
+            t8: t8 ?? TimeSpan.FromSeconds(5),
+            enableControlMessageObservation: enableControlMessageObservation,
+            enableTransportFaultObservation: enableTransportFaultObservation);
 
     private static async Task AssertSelectedEventAsync(
         IAsyncEnumerator<HsmsConnectionEvent> passiveEvents,

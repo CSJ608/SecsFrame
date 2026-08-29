@@ -6,7 +6,10 @@ internal sealed class HsmsSessionOptions
         HsmsConnectionMode connectionMode,
         TimeSpan controlReplyTimeout,
         TimeSpan selectionTimeout,
-        bool enableControlMessageObservation = false)
+        bool enableControlMessageObservation = false,
+        bool enableTransportFaultObservation = false,
+        int transportFaultObservationCapacity =
+            HsmsConnectionOptions.DefaultTransportFaultObservationCapacity)
     {
         if (connectionMode != HsmsConnectionMode.Active &&
             connectionMode != HsmsConnectionMode.Passive)
@@ -33,10 +36,20 @@ internal sealed class HsmsSessionOptions
                 "The selection timeout must be positive.");
         }
 
+        if (transportFaultObservationCapacity <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(transportFaultObservationCapacity),
+                transportFaultObservationCapacity,
+                "The transport-fault observation capacity must be positive.");
+        }
+
         ConnectionMode = connectionMode;
         ControlReplyTimeout = controlReplyTimeout;
         SelectionTimeout = selectionTimeout;
         EnableControlMessageObservation = enableControlMessageObservation;
+        EnableTransportFaultObservation = enableTransportFaultObservation;
+        TransportFaultObservationCapacity = transportFaultObservationCapacity;
     }
 
     public HsmsConnectionMode ConnectionMode { get; }
@@ -46,4 +59,8 @@ internal sealed class HsmsSessionOptions
     public TimeSpan SelectionTimeout { get; }
 
     public bool EnableControlMessageObservation { get; }
+
+    public bool EnableTransportFaultObservation { get; }
+
+    public int TransportFaultObservationCapacity { get; }
 }

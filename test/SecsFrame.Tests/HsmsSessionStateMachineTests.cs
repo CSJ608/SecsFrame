@@ -554,14 +554,19 @@ public sealed partial class HsmsSessionStateMachineTests
         HsmsConnectionMode mode,
         ManualTimerFactory timers,
         IHsmsSystemBytesProvider? systemBytesProvider = null,
-        bool enableControlMessageObservation = false)
+        bool enableControlMessageObservation = false,
+        bool enableTransportFaultObservation = false,
+        int transportFaultObservationCapacity =
+            HsmsConnectionOptions.DefaultTransportFaultObservationCapacity)
         => new(
             transport,
             new HsmsSessionOptions(
                 mode,
                 T6,
                 T7,
-                enableControlMessageObservation),
+                enableControlMessageObservation,
+                enableTransportFaultObservation,
+                transportFaultObservationCapacity),
             timers,
             systemBytesProvider);
 
@@ -884,6 +889,15 @@ public sealed partial class HsmsSessionStateMachineTests
             _events.Writer.TryWrite(
                 HsmsTransportEvent.FrameReceived(sessionId, frame));
         }
+
+        public void ObserveT8(
+            HsmsTransportSessionId sessionId,
+            ReadOnlySpan<byte> snapshot)
+            => _events.Writer.TryWrite(
+                HsmsTransportEvent.TransportFaultObserved(
+                    sessionId,
+                    HsmsTransportFaultKind.IncompleteFrameTimeout,
+                    snapshot));
 
         public void CompleteSend(int index)
         {

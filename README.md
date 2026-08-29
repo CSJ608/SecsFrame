@@ -47,8 +47,10 @@ Equipment 应用发送策略的 Collection Event、报警目录查询、单报�
 显式启用的完整控制消息观测流或既有未认领控制事件的十字节头元数据。
 解码失败样本另用独立信封，并以元数据为默认导出边界；Body 捕获与 codec
 导入导出都必须显式开启，声明的脱敏字节范围会固定清零并严格复核。
-控制观测默认关闭，并与业务事件流独立；该包不会自行接管任何连接消费者，
-也不会复用原事务标识。
+T8 互操作诊断另有默认关闭、容量有界的独立观测流；它保留 transport
+Session ID 和最多 8 KiB 的未完成帧前缀快照。Trace 默认仍只导出元数据，
+快照捕获和 payload codec 必须分别显式开启。控制与 T8 观测都和业务事件流
+独立；该包不会自行接管任何连接消费者，也不会复用原事务标识。
 Item 用法与边界见
 [docs/SECS-II-ITEMS.md](docs/SECS-II-ITEMS.md)，消息集成见
 [docs/SECS-MESSAGES.md](docs/SECS-MESSAGES.md)，传输适配边界见

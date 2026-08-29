@@ -25,7 +25,9 @@ Trace 的时序重放必须显式启用，只在允许发送记录之间等待�
 该流并创建记录，不自行订阅连接。既有公共未认领控制事件工厂继续可用。
 已成帧但 SECS-II Body 解码失败的样本使用独立信封：捕获和 codec 分别要求
 显式数据边界，默认只允许头与原 Body 长度；payload-bearing 记录不能进入
-重放。T8 和成帧失败片段尚未进入该模型。
+重放。T8 使用另一个独立信封：核心必须先显式启用容量有界的观测流，Trace
+再选择元数据、脱敏或原始前缀快照；快照最多 8 KiB 且不声明完整 TCP 片段。
+其他成帧错误仍未进入该模型。
 
 ## 核心原则
 
@@ -77,7 +79,8 @@ HSMS 会话切换后，旧会话的控制请求、数据事务和等待中的应
   释放的 StreamFrame 生命周期；
 - Active 连接把显式 T5 映射为固定 StreamFrame 重试间隔，关闭指数退避；
 - 显式 T8 映射为 StreamFrame 原生未完成帧超时，并把对应 FrameError
-  转换为带 transport Session ID 的 HSMS 关闭原因。
+  转换为带 transport Session ID 的 HSMS 关闭原因；显式启用时还在同一
+  transport 事件序列中复制有界前缀快照。
 
 这些能力仍隔离在 <code>IHsmsTransport</code> 后，不进入公共 API。此前
 跟踪的 StreamFrame #38/#39 已在 2.3.0 完成迁移，2.3.1 进一步封闭迟到
@@ -137,6 +140,12 @@ Selected 转发数据消息；提前到达的数据、可识别的不支持类�
 验证和状态转换前记录，出站头只在绑定当前会话的整帧发送成功后记录。
 通道默认不创建，记录不含 Body、原始字节、transport Session generation
 或时间戳；它是诊断元数据边界，不参与协议决策。
+
+可选 T8 观测通道同样由 actor 写入，但使用容量有界、满时丢弃最旧项的
+独立队列，避免未消费的原始快照形成无界内存或阻塞协议处理。状态机只接受
+当前 transport Session ID 的 fault；观测保留最多 8 KiB 前缀，不参与关闭
+决策。StreamFrame 2.5.0 的其他 FrameError 不带 session/epoch，核心不会
+用读取“当前 ID”的方式把它们冒充为严格会话关联事件。
 
 ### 会话绑定的数据事务
 

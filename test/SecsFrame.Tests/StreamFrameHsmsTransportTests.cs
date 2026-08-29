@@ -176,6 +176,42 @@ public sealed class StreamFrameHsmsTransportTests
     }
 
     [Fact]
+    public async Task Enabled_native_T8_observation_preserves_session_and_snapshot()
+    {
+        var connection = new FakeStreamConnection();
+        await using var transport = CreateTransport(
+            connection,
+            enableT8FaultObservation: true);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var events = transport.GetEventsAsync(cancellation.Token).GetAsyncEnumerator();
+        transport.Start(cancellation.Token);
+        connection.RaiseState(ConnectionState.Connected);
+        var opened = await NextAsync(events).ConfigureAwait(true);
+        var snapshot = new byte[] { 0x00, 0x00, 0x00, 0x0A, 0x00 };
+
+        connection.RaiseFrameError(
+            FrameErrorKind.IncompleteFrameTimeout,
+            snapshot);
+        snapshot[0] = 0xFF;
+        var fault = await NextAsync(events).ConfigureAwait(true);
+        connection.Reconnect();
+        var closed = await NextAsync(events).ConfigureAwait(true);
+
+        Assert.Equal(HsmsTransportEventKind.TransportFaultObserved, fault.Kind);
+        Assert.Equal(opened.SessionId, fault.SessionId);
+        Assert.Equal(
+            HsmsTransportFaultKind.IncompleteFrameTimeout,
+            fault.FaultKind);
+        Assert.Equal(
+            new byte[] { 0x00, 0x00, 0x00, 0x0A, 0x00 },
+            fault.Snapshot.ToArray());
+        Assert.Equal(HsmsTransportEventKind.SessionClosed, closed.Kind);
+        Assert.Equal(opened.SessionId, closed.SessionId);
+        Assert.IsType<HsmsT8TimeoutException>(closed.Error);
+        await events.DisposeAsync().ConfigureAwait(true);
+    }
+
+    [Fact]
     public async Task Other_native_frame_errors_do_not_become_T8_close_reasons()
     {
         var connection = new FakeStreamConnection();
@@ -500,8 +536,9 @@ public sealed class StreamFrameHsmsTransportTests
     }
 
     private static StreamFrameHsmsTransport CreateTransport(
-        FakeStreamConnection connection)
-        => new(connection);
+        FakeStreamConnection connection,
+        bool enableT8FaultObservation = false)
+        => new(connection, enableT8FaultObservation);
 
     private static StreamFrameHsmsTransport CreateControlledTransport(
         int port,
@@ -845,10 +882,12 @@ public sealed class StreamFrameHsmsTransportTests
             ConnectionChanged?.Invoke(this, state);
         }
 
-        public void RaiseFrameError(FrameErrorKind kind)
+        public void RaiseFrameError(
+            FrameErrorKind kind,
+            ReadOnlyMemory<byte> bytes = default)
             => FrameError?.Invoke(
                 this,
-                new FrameErrorEventArgs(kind, ReadOnlyMemory<byte>.Empty));
+                new FrameErrorEventArgs(kind, bytes));
 
         public void Emit(long sessionId, HsmsFrame frame)
             => _messages.Writer.TryWrite(new SessionMessage<HsmsFrame>(sessionId, frame));

@@ -10,6 +10,7 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
 {
     private readonly ISessionAwareStreamConnection<HsmsFrame> _connection;
     private readonly Channel<HsmsTransportEvent> _events;
+    private readonly bool _enableT8FaultObservation;
 #if NET9_0_OR_GREATER
     private readonly Lock _lifecycleGate = new();
     private readonly Lock _sessionGate = new();
@@ -24,9 +25,11 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
     private int _disposed;
 
     internal StreamFrameHsmsTransport(
-        ISessionAwareStreamConnection<HsmsFrame> connection)
+        ISessionAwareStreamConnection<HsmsFrame> connection,
+        bool enableT8FaultObservation = false)
     {
         _connection = connection ?? throw new ArgumentNullException(nameof(connection));
+        _enableT8FaultObservation = enableT8FaultObservation;
         _events = Channel.CreateUnbounded<HsmsTransportEvent>(new UnboundedChannelOptions
         {
             SingleReader = false,
@@ -60,7 +63,9 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
             port,
             isActive,
             adaptedOptions);
-        return new StreamFrameHsmsTransport(connection);
+        return new StreamFrameHsmsTransport(
+            connection,
+            hsmsOptions.EnableT8FaultObservation);
     }
 
     public void Start(CancellationToken cancellationToken)
@@ -280,16 +285,27 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
         if (sessionValue <= 0)
             return;
 
+        var isCurrentSession = false;
         lock (_sessionGate)
         {
             if (_currentSessionId == sessionValue &&
+                _connection.CurrentSessionId == sessionValue &&
                 _sessions.TryGetValue(sessionValue, out var context) &&
-                !context.IsClosed &&
-                context.CloseReason is null)
+                !context.IsClosed)
             {
-                context.CloseReason = new HsmsT8TimeoutException(
+                isCurrentSession = true;
+                context.CloseReason ??= new HsmsT8TimeoutException(
                     new HsmsTransportSessionId(sessionValue));
             }
+        }
+
+        if (isCurrentSession && _enableT8FaultObservation)
+        {
+            _events.Writer.TryWrite(
+                HsmsTransportEvent.TransportFaultObserved(
+                    new HsmsTransportSessionId(sessionValue),
+                    HsmsTransportFaultKind.IncompleteFrameTimeout,
+                    args.Bytes.Span));
         }
     }
 

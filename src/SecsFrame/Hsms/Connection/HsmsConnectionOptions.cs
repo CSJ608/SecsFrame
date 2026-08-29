@@ -8,6 +8,9 @@ namespace SecsFrame;
 /// </summary>
 public sealed class HsmsConnectionOptions
 {
+    /// <summary>The default number of retained T8 observations.</summary>
+    public const int DefaultTransportFaultObservationCapacity = 16;
+
     /// <summary>Creates explicit HSMS connection settings.</summary>
     /// <param name="ipAddress">The remote address in Active mode or local bind address in Passive mode.</param>
     /// <param name="port">The TCP port, from 1 through 65535.</param>
@@ -21,6 +24,12 @@ public sealed class HsmsConnectionOptions
     /// <param name="enableControlMessageObservation">
     /// Enables the separate restricted-metadata control-message observation stream.
     /// </param>
+    /// <param name="enableTransportFaultObservation">
+    /// Enables the separate bounded T8 prefix-snapshot observation stream.
+    /// </param>
+    /// <param name="transportFaultObservationCapacity">
+    /// The maximum queued T8 observations before the oldest item is discarded.
+    /// </param>
     public HsmsConnectionOptions(
         IPAddress ipAddress,
         int port,
@@ -31,7 +40,10 @@ public sealed class HsmsConnectionOptions
         TimeSpan t6,
         TimeSpan t7,
         TimeSpan t8,
-        bool enableControlMessageObservation = false)
+        bool enableControlMessageObservation = false,
+        bool enableTransportFaultObservation = false,
+        int transportFaultObservationCapacity =
+            DefaultTransportFaultObservationCapacity)
     {
         IpAddress = ipAddress ?? throw new ArgumentNullException(nameof(ipAddress));
         if (port is < 1 or > ushort.MaxValue)
@@ -64,6 +76,13 @@ public sealed class HsmsConnectionOptions
         ValidatePositive(t6, nameof(t6), "T6");
         ValidatePositive(t7, nameof(t7), "T7");
         ValidateStreamFrameMilliseconds(t8, nameof(t8), "T8");
+        if (transportFaultObservationCapacity <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(transportFaultObservationCapacity),
+                transportFaultObservationCapacity,
+                "The transport-fault observation capacity must be positive.");
+        }
 
         Port = port;
         ConnectionMode = connectionMode;
@@ -74,6 +93,8 @@ public sealed class HsmsConnectionOptions
         T7 = t7;
         T8 = t8;
         EnableControlMessageObservation = enableControlMessageObservation;
+        EnableTransportFaultObservation = enableTransportFaultObservation;
+        TransportFaultObservationCapacity = transportFaultObservationCapacity;
     }
 
     /// <summary>Gets the remote or local bind IP address.</summary>
@@ -107,6 +128,12 @@ public sealed class HsmsConnectionOptions
     /// Gets whether the separate control-message metadata stream is enabled.
     /// </summary>
     public bool EnableControlMessageObservation { get; }
+
+    /// <summary>Gets whether the bounded T8 prefix-snapshot stream is enabled.</summary>
+    public bool EnableTransportFaultObservation { get; }
+
+    /// <summary>Gets the maximum number of queued T8 observations.</summary>
+    public int TransportFaultObservationCapacity { get; }
 
     private static void ValidatePositive(
         TimeSpan value,
