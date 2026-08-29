@@ -65,6 +65,11 @@
 未来如引入实质性开源代码，必须保留对应版权与许可证文本，并在变更说明
 中记录来源。
 
+<code>SecsFrame.Sml</code> 的调试 profile 不是规范性标准实现。开发前只读
+参考了 MIT 许可的 secs4net 公开 SML 项目以交叉核对常见文本拼写；当前
+实现和测试向量均独立编写，JIS-8 原始字节与 ASCII 转义边界见
+[SML.md](SML.md)。
+
 与官方 Secs4Net 3.1.0 的 Select、Linktest 和动态消息往返是独立软件实现
 之间的工程互操作证据，不代表任何一方通过 SEMI 一致性认证。具体矩阵见
 [SECS4NET-INTEROP.md](SECS4NET-INTEROP.md)。

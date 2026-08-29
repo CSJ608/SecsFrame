@@ -21,6 +21,12 @@
 
 ### 新增
 
+- 增加独立 <code>SecsFrame.Sml</code> 程序集，为动态消息和全部 Item 类型
+  提供确定性 SML 调试文本写出与严格读取。
+- 增加 ASCII 可逆转义、JIS-8 原始十六进制字节、InvariantCulture 数字、
+  无 Body/空 List 区分，以及深度、Item、值和文本长度资源边界。
+- 增加 SML 黄金向量、全类型往返、非法语法、源位置和资源限制测试；该
+  profile 不声明标准 SML 合规。
 - 初始化 SecsFrame 仓库、工程规范和 CI。
 - 增加 HSMS 帧头、严格长度定界与编解码基础实现。
 - 增加 SEMI E5-0725 的完整 SECS-II Item 动态数据模型与严格二进制编解码。

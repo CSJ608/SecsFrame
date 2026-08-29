@@ -15,6 +15,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\SecsFrame.Gem\SecsFrame.Gem.csproj" />
+    <ProjectReference Include="..\..\src\SecsFrame.Sml\SecsFrame.Sml.csproj" />
     <ProjectReference Include="..\..\src\SecsFrame\SecsFrame.csproj" />
   </ItemGroup>
   <ItemGroup>
