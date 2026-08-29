@@ -121,6 +121,34 @@ public sealed class GemEquipmentServicesTests
     }
 
     [Fact]
+    public async Task Alarm_catalog_vectors_require_w_bit_list_and_unique_ids()
+    {
+        await using var endpoint = new SecsEquipment(
+            CreateOptions(GetFreePort(), HsmsConnectionMode.Active));
+        using var services = new GemEquipmentServices(
+            endpoint,
+            new GemIdentity("EQ-01", "1.0"),
+            new TestGemClock(Epoch));
+        var body = SecsItem.List(SecsItem.U2(3001));
+
+        await Assert.ThrowsAsync<GemProtocolException>(() => DispatchAsync(
+            services,
+            new SecsMessage(5, 5, rootItem: body))).ConfigureAwait(true);
+        await Assert.ThrowsAsync<GemProtocolException>(() => DispatchAsync(
+            services,
+            new SecsMessage(5, 5, true, SecsItem.U2(3001))))
+            .ConfigureAwait(true);
+        await Assert.ThrowsAsync<GemProtocolException>(() => DispatchAsync(
+            services,
+            new SecsMessage(
+                5,
+                5,
+                true,
+                SecsItem.List(SecsItem.U2(3001), SecsItem.U2(3001)))))
+            .ConfigureAwait(true);
+    }
+
+    [Fact]
     public async Task Dynamic_registration_is_exact_disposable_and_replaceable()
     {
         await using var endpoint = new SecsEquipment(
@@ -197,6 +225,35 @@ public sealed class GemEquipmentServicesTests
         services.Dispose();
         Assert.Throws<ObjectDisposedException>(() =>
             services.RegisterRemoteCommandHandler(handler));
+    }
+
+    [Fact]
+    public async Task Alarm_registration_is_exact_disposable_and_replaceable()
+    {
+        await using var endpoint = new SecsEquipment(
+            CreateOptions(GetFreePort(), HsmsConnectionMode.Active));
+        using var services = new GemEquipmentServices(
+            endpoint,
+            new GemIdentity("EQ-01", "1.0"),
+            new TestGemClock(Epoch));
+        var definition = new GemAlarmDefinition(
+            0x81,
+            SecsItem.U2(3001),
+            "DOOR OPEN");
+
+        var first = services.RegisterAlarm(definition);
+        Assert.Equal(definition.AlarmId, first.AlarmId);
+        Assert.Throws<InvalidOperationException>(() =>
+            services.RegisterAlarm(definition));
+        first.Dispose();
+        first.Dispose();
+        using var replacement = services.RegisterAlarm(definition);
+        services.Dispose();
+        Assert.Throws<ObjectDisposedException>(() =>
+            services.RegisterAlarm(new GemAlarmDefinition(
+                0x01,
+                SecsItem.U2(3002),
+                "PRESSURE HIGH")));
     }
 
     private static Task<bool> DispatchAsync(

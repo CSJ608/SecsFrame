@@ -16,6 +16,8 @@ public sealed class GemMessageProfile
         new(5, 1, 2);
     private static readonly GemMessagePair BaselineRemoteCommand =
         new(2, 41, 42);
+    private static readonly GemMessagePair BaselineListAlarms =
+        new(5, 5, 6);
 
     /// <summary>
     /// Creates a foundational profile using the engineering-baseline alarm and
@@ -95,6 +97,48 @@ public sealed class GemMessageProfile
     {
     }
 
+    /// <summary>
+    /// Creates a foundational profile using the engineering-baseline
+    /// alarm-list pair.
+    /// </summary>
+    public GemMessageProfile(
+        GemMessagePair establishCommunication,
+        GemMessagePair areYouOnline,
+        GemMessagePair requestOnline,
+        GemMessagePair requestOffline,
+        GemMessagePair readStatusVariables,
+        GemMessagePair readEquipmentConstants,
+        GemMessagePair getClock,
+        GemMessagePair setClock,
+        GemMessagePair defineReports,
+        GemMessagePair linkEventReports,
+        GemMessagePair collectionEvent,
+        GemMessagePair alarmNotification,
+        GemMessagePair remoteCommand,
+        byte acceptedAcknowledgement,
+        byte failedAcknowledgement,
+        GemClockCodec clockCodec)
+        : this(
+            establishCommunication,
+            areYouOnline,
+            requestOnline,
+            requestOffline,
+            readStatusVariables,
+            readEquipmentConstants,
+            getClock,
+            setClock,
+            defineReports,
+            linkEventReports,
+            collectionEvent,
+            alarmNotification,
+            remoteCommand,
+            BaselineListAlarms,
+            acceptedAcknowledgement,
+            failedAcknowledgement,
+            clockCodec)
+    {
+    }
+
     /// <summary>Creates an explicit foundational message profile.</summary>
     public GemMessageProfile(
         GemMessagePair establishCommunication,
@@ -110,6 +154,7 @@ public sealed class GemMessageProfile
         GemMessagePair collectionEvent,
         GemMessagePair alarmNotification,
         GemMessagePair remoteCommand,
+        GemMessagePair listAlarms,
         byte acceptedAcknowledgement,
         byte failedAcknowledgement,
         GemClockCodec clockCodec)
@@ -134,7 +179,8 @@ public sealed class GemMessageProfile
             linkEventReports,
             collectionEvent,
             alarmNotification,
-            remoteCommand);
+            remoteCommand,
+            listAlarms);
         EstablishCommunication = establishCommunication;
         AreYouOnline = areYouOnline;
         RequestOnline = requestOnline;
@@ -148,6 +194,7 @@ public sealed class GemMessageProfile
         CollectionEvent = collectionEvent;
         AlarmNotification = alarmNotification;
         RemoteCommand = remoteCommand;
+        ListAlarms = listAlarms;
         AcceptedAcknowledgement = acceptedAcknowledgement;
         FailedAcknowledgement = failedAcknowledgement;
         ClockCodec = clockCodec ?? throw new ArgumentNullException(nameof(clockCodec));
@@ -192,6 +239,9 @@ public sealed class GemMessageProfile
     /// <summary>Gets the remote-command message pair.</summary>
     public GemMessagePair RemoteCommand { get; }
 
+    /// <summary>Gets the alarm-list request/reply message pair.</summary>
+    public GemMessagePair ListAlarms { get; }
+
     /// <summary>Gets the configured successful acknowledgement byte.</summary>
     public byte AcceptedAcknowledgement { get; }
 
@@ -219,6 +269,7 @@ public sealed class GemMessageProfile
             new GemMessagePair(6, 11, 12),
             BaselineAlarmNotification,
             BaselineRemoteCommand,
+            BaselineListAlarms,
             acceptedAcknowledgement: 0,
             failedAcknowledgement: 1,
             new GemClockCodec(EncodeBaselineTime, DecodeBaselineTime));

@@ -248,6 +248,80 @@ internal static class GemMessageCodec
             RequireAscii(body[2], operation, "text"));
     }
 
+    internal static SecsItem EncodeAlarmIdentifiers(
+        IEnumerable<SecsItem> alarmIds)
+    {
+        var identifiers = GemCollection.Copy(alarmIds, nameof(alarmIds));
+        ValidateUniqueIdentifiers(identifiers, nameof(alarmIds), "Alarm");
+        return SecsItem.List(identifiers);
+    }
+
+    internal static IReadOnlyList<SecsItem> DecodeAlarmIdentifiers(
+        SecsItem? root)
+    {
+        const string operation = "alarm-list request";
+        var identifiers = DecodeList(root, operation);
+        RequireUniqueIdentifiers(
+            identifiers,
+            operation,
+            "alarm",
+            parentIndex: 0);
+        return identifiers;
+    }
+
+    internal static SecsItem EncodeAlarmDefinitions(
+        IEnumerable<GemAlarmDefinition> definitions)
+    {
+        var alarms = GemCollection.Copy(definitions, nameof(definitions));
+        var identifiers = new HashSet<SecsItem>();
+        var encoded = new SecsItem[alarms.Count];
+        for (var index = 0; index < alarms.Count; index++)
+        {
+            var alarm = alarms[index];
+            if (!identifiers.Add(alarm.AlarmId))
+            {
+                throw new ArgumentException(
+                    $"Alarm identifier at index {index} is duplicated.",
+                    nameof(definitions));
+            }
+
+            encoded[index] = SecsItem.List(
+                SecsItem.Binary(alarm.Code),
+                alarm.AlarmId,
+                SecsItem.Ascii(alarm.Text));
+        }
+
+        return SecsItem.List(encoded);
+    }
+
+    internal static IReadOnlyList<GemAlarmDefinition> DecodeAlarmDefinitions(
+        SecsItem? root)
+    {
+        const string operation = "alarm-list reply";
+        var encoded = DecodeList(root, operation);
+        var definitions = new GemAlarmDefinition[encoded.Count];
+        var identifiers = new HashSet<SecsItem>();
+        for (var index = 0; index < encoded.Count; index++)
+        {
+            var fields = RequireList(encoded[index], 3, operation);
+            if (!identifiers.Add(fields[1]))
+            {
+                throw new GemProtocolException(
+                    $"The {operation} contains duplicate alarm identifier " +
+                    $"at index {index}.");
+            }
+
+            definitions[index] = new GemAlarmDefinition(
+                RequireBinaryByte(
+                    fields[0],
+                    $"alarm-list code at index {index}"),
+                fields[1],
+                RequireAscii(fields[2], operation, $"text at index {index}"));
+        }
+
+        return Array.AsReadOnly(definitions);
+    }
+
     internal static SecsItem EncodeRemoteCommand(GemRemoteCommand command)
     {
         if (command is null)
@@ -433,6 +507,23 @@ internal static class GemMessageCodec
             {
                 throw new ArgumentException(
                     $"Report identifier at index {index} is duplicated.",
+                    parameterName);
+            }
+        }
+    }
+
+    private static void ValidateUniqueIdentifiers(
+        IReadOnlyList<SecsItem> identifiers,
+        string parameterName,
+        string kind)
+    {
+        var unique = new HashSet<SecsItem>();
+        for (var index = 0; index < identifiers.Count; index++)
+        {
+            if (!unique.Add(identifiers[index]))
+            {
+                throw new ArgumentException(
+                    $"{kind} identifier at index {index} is duplicated.",
                     parameterName);
             }
         }

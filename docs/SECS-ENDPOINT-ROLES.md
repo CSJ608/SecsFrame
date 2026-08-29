@@ -63,6 +63,6 @@ await equipment.WaitUntilSelectedAsync(cancellationToken);
 
 当前 GEM 切片已实现工程配置下的通讯建立、在线状态、变量、设备常量、
 时钟、报告定义、事件链接、Collection Event，以及最小报警通知和远程命令；
-报警目录、启停/历史、命令目录/权限/调度仍未实现。相关行为、事件循环要求
-和未核对边界见
+报警目录查询也支持运行期注册。报警启停/历史、命令目录/权限/调度仍未
+实现。相关行为、事件循环要求和未核对边界见
 [GEM-FOUNDATION.md](GEM-FOUNDATION.md)，项目不声明 GEM 合规。

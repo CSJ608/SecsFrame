@@ -188,6 +188,21 @@ public sealed class GemHostServices : IDisposable
             response.Message.RootItem);
     }
 
+    /// <summary>Lists all or selected Equipment alarm definitions.</summary>
+    public async Task<IReadOnlyList<GemAlarmDefinition>> ListAlarmsAsync(
+        IEnumerable<SecsItem>? alarmIds = null,
+        CancellationToken cancellationToken = default)
+    {
+        var response = await _services.SendRequestAsync(
+            Profile.ListAlarms,
+            GemOperation.ListAlarms,
+            GemMessageCodec.EncodeAlarmIdentifiers(
+                alarmIds ?? Array.Empty<SecsItem>()),
+            cancellationToken).ConfigureAwait(false);
+        return GemMessageCodec.DecodeAlarmDefinitions(
+            response.Message.RootItem);
+    }
+
     /// <summary>Registers the single application Collection Event handler.</summary>
     public GemCollectionEventRegistration RegisterCollectionEventHandler(
         GemCollectionEventHandler handler)

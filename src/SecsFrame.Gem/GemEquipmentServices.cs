@@ -16,6 +16,8 @@ public sealed class GemEquipmentServices : IDisposable
     private readonly Dictionary<SecsItem, GemValueRegistration> _equipmentConstants = new();
     private readonly Dictionary<SecsItem, GemReportDefinition> _reportDefinitions = new();
     private readonly Dictionary<SecsItem, GemEventReportLink> _eventReportLinks = new();
+    private readonly Dictionary<SecsItem, GemAlarmRegistration> _alarms = new();
+    private readonly List<GemAlarmRegistration> _alarmCatalog = new();
     private GemRemoteCommandRegistration? _remoteCommandHandler;
     private int _disposed;
 
@@ -114,6 +116,30 @@ public sealed class GemEquipmentServices : IDisposable
         }
     }
 
+    /// <summary>Registers one exact runtime alarm definition.</summary>
+    public GemAlarmRegistration RegisterAlarm(GemAlarmDefinition definition)
+    {
+        if (definition is null)
+            throw new ArgumentNullException(nameof(definition));
+
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            if (_alarms.ContainsKey(definition.AlarmId))
+            {
+                throw new InvalidOperationException(
+                    $"Alarm {definition.AlarmId} is already registered.");
+            }
+
+            var registration = new GemAlarmRegistration(
+                definition,
+                UnregisterAlarm);
+            _alarms.Add(definition.AlarmId, registration);
+            _alarmCatalog.Add(registration);
+            return registration;
+        }
+    }
+
     /// <summary>Collects and sends one linked Collection Event to the Host.</summary>
     public async Task SendCollectionEventAsync(
         SecsItem dataId,
@@ -199,6 +225,8 @@ public sealed class GemEquipmentServices : IDisposable
             _equipmentConstants.Clear();
             _reportDefinitions.Clear();
             _eventReportLinks.Clear();
+            _alarms.Clear();
+            _alarmCatalog.Clear();
             _remoteCommandHandler = null;
         }
         _services.Dispose();
@@ -215,6 +243,7 @@ public sealed class GemEquipmentServices : IDisposable
         _services.AddRoute(Profile.DefineReports, HandleDefineReportsAsync);
         _services.AddRoute(Profile.LinkEventReports, HandleLinkEventReportsAsync);
         _services.AddRoute(Profile.RemoteCommand, HandleRemoteCommandAsync);
+        _services.AddRoute(Profile.ListAlarms, HandleListAlarmsAsync);
     }
 
     private ValueTask<SecsMessage?> HandleOnlineAsync(
@@ -389,6 +418,42 @@ public sealed class GemEquipmentServices : IDisposable
         return GemEndpointServices.CreateSecondary(
             Profile.RemoteCommand,
             GemMessageCodec.EncodeRemoteCommandResult(result));
+    }
+
+    private ValueTask<SecsMessage?> HandleListAlarmsAsync(
+        HsmsPrimaryContext context,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        GemMessageCodec.RequireReplyExpected(context, "alarm-list request");
+        var identifiers = GemMessageCodec.DecodeAlarmIdentifiers(
+            context.Message.RootItem);
+        IReadOnlyList<GemAlarmDefinition> definitions;
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            var snapshot = new List<GemAlarmDefinition>();
+            if (identifiers.Count == 0)
+            {
+                foreach (var registration in _alarmCatalog)
+                    snapshot.Add(registration.Definition);
+            }
+            else
+            {
+                foreach (var identifier in identifiers)
+                {
+                    if (_alarms.TryGetValue(identifier, out var registration))
+                        snapshot.Add(registration.Definition);
+                }
+            }
+
+            definitions = snapshot.AsReadOnly();
+        }
+
+        return new ValueTask<SecsMessage?>(
+            GemEndpointServices.CreateSecondary(
+                Profile.ListAlarms,
+                GemMessageCodec.EncodeAlarmDefinitions(definitions)));
     }
 
     private GemValueRegistration RegisterValue(
@@ -620,6 +685,19 @@ public sealed class GemEquipmentServices : IDisposable
         {
             if (ReferenceEquals(_remoteCommandHandler, registration))
                 _remoteCommandHandler = null;
+        }
+    }
+
+    private void UnregisterAlarm(GemAlarmRegistration registration)
+    {
+        lock (_gate)
+        {
+            if (_alarms.TryGetValue(registration.AlarmId, out var current) &&
+                ReferenceEquals(current, registration))
+            {
+                _alarms.Remove(registration.AlarmId);
+                _alarmCatalog.Remove(registration);
+            }
         }
     }
 
