@@ -655,6 +655,7 @@ public sealed class GemFoundationTcpTests
     {
         var exactCalls = 0;
         var fallbackCalls = 0;
+        var acceptanceCalls = 0;
         using var fallbackRegistration =
             context.EquipmentServices.RegisterRemoteCommandHandler(
                 (_, _) =>
@@ -672,25 +673,45 @@ public sealed class GemFoundationTcpTests
                     return new ValueTask<GemRemoteCommandResult>(
                         CreateAcceptedRemoteCommandResult());
                 });
-
+        using var acceptanceRegistration =
+            context.EquipmentServices.RegisterRemoteCommandAcceptanceHandler(
+                (_, _, _, _) =>
+                {
+                    acceptanceCalls++;
+                    return new ValueTask<bool>(true);
+                });
         AssertAcceptedRemoteCommandResult(
             await context.HostServices.ExecuteRemoteCommandAsync(
                 CreateRemoteCommand(),
                 context.Token).ConfigureAwait(true));
-        Assert.Equal((1, 0), (exactCalls, fallbackCalls));
+        Assert.Equal((1, 0, 1), (exactCalls, fallbackCalls, acceptanceCalls));
+
+        exactRegistration.SetExecutionEnabled(false);
+        AssertRejectedRemoteCommandResult(
+            await context.HostServices.ExecuteRemoteCommandAsync(
+                CreateRemoteCommand(),
+                context.Token).ConfigureAwait(true));
+        Assert.Equal((1, 0, 1), (exactCalls, fallbackCalls, acceptanceCalls));
 
         AssertAcceptedRemoteCommandResult(
             await context.HostServices.ExecuteRemoteCommandAsync(
                 CreateRemoteCommand(SecsItem.Ascii("FALLBACK")),
                 context.Token).ConfigureAwait(true));
-        Assert.Equal((1, 1), (exactCalls, fallbackCalls));
+        Assert.Equal((1, 1, 2), (exactCalls, fallbackCalls, acceptanceCalls));
+
+        exactRegistration.SetExecutionEnabled(true);
+        AssertAcceptedRemoteCommandResult(
+            await context.HostServices.ExecuteRemoteCommandAsync(
+                CreateRemoteCommand(),
+                context.Token).ConfigureAwait(true));
+        Assert.Equal((2, 1, 3), (exactCalls, fallbackCalls, acceptanceCalls));
 
         exactRegistration.Dispose();
         AssertAcceptedRemoteCommandResult(
             await context.HostServices.ExecuteRemoteCommandAsync(
                 CreateRemoteCommand(),
                 context.Token).ConfigureAwait(true));
-        Assert.Equal((1, 2), (exactCalls, fallbackCalls));
+        Assert.Equal((2, 2, 4), (exactCalls, fallbackCalls, acceptanceCalls));
     }
 
     private static async Task<GemRemoteCommand>

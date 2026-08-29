@@ -4,6 +4,7 @@ namespace SecsFrame.Gem;
 public sealed class GemRemoteCommandEntryRegistration : IDisposable
 {
     private Action<GemRemoteCommandEntryRegistration>? _unregister;
+    private int _executionEnabled = 1;
 
     internal GemRemoteCommandEntryRegistration(
         SecsItem command,
@@ -17,6 +18,13 @@ public sealed class GemRemoteCommandEntryRegistration : IDisposable
 
     /// <summary>Gets the exact dynamic command identifier.</summary>
     public SecsItem Command { get; }
+
+    /// <summary>Gets whether this command may currently execute.</summary>
+    public bool IsExecutionEnabled => Volatile.Read(ref _executionEnabled) != 0;
+
+    /// <summary>Changes whether this command may execute.</summary>
+    public void SetExecutionEnabled(bool enabled)
+        => Volatile.Write(ref _executionEnabled, enabled ? 1 : 0);
 
     internal GemRemoteCommandHandler Handler { get; }
 

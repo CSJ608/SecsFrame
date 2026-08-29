@@ -634,11 +634,18 @@ public sealed class GemEquipmentServices : IDisposable
         lock (_gate)
         {
             acceptanceHandler = _remoteCommandAcceptanceHandler?.Handler;
-            handler = _remoteCommandEntries.TryGetValue(
+            if (_remoteCommandEntries.TryGetValue(
                 command.Command,
-                out var registration)
-                ? registration.Handler
-                : _remoteCommandHandler?.Handler;
+                out var registration))
+            {
+                handler = registration.IsExecutionEnabled
+                    ? registration.Handler
+                    : null;
+            }
+            else
+            {
+                handler = _remoteCommandHandler?.Handler;
+            }
             communicationState = CommunicationState;
             onlineState = OnlineState;
         }
