@@ -34,7 +34,8 @@ Deselect、Separate、T6/T7 和 Selected 数据门控。内部数据事务 actor
 建立及应用接受策略、同会话显式重试恢复、上下线与应用转换策略、动态变量/
 常量、应用托管时钟、报告定义、事件链接和带 Equipment 应用发送策略的
 Collection Event、报警目录查询、单报警发送启停，以及最小报警通知、
-Equipment 报警通知发送策略、远程命令链路和应用状态接受策略。
+Equipment 报警通知发送策略、远程命令运行期精确目录/全局回退和应用状态
+接受策略。
 Item 用法与边界见
 [docs/SECS-II-ITEMS.md](docs/SECS-II-ITEMS.md)，消息集成见
 [docs/SECS-MESSAGES.md](docs/SECS-MESSAGES.md)，传输适配边界见

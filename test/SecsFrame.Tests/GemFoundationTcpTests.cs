@@ -632,6 +632,7 @@ public sealed class GemFoundationTcpTests
             SecsItem.List(SecsItem.Boolean(true), SecsItem.F8(1.5)),
             command.Parameters[1].Value);
 
+        await AssertRemoteCommandDirectoryAsync(context).ConfigureAwait(true);
         var acceptanceCalls = 0;
         using (context.EquipmentServices.RegisterRemoteCommandAcceptanceHandler(
             (_, _, _, _) =>
@@ -647,6 +648,49 @@ public sealed class GemFoundationTcpTests
         }
 
         Assert.Equal(0, acceptanceCalls);
+    }
+
+    private static async Task AssertRemoteCommandDirectoryAsync(
+        GemTcpContext context)
+    {
+        var exactCalls = 0;
+        var fallbackCalls = 0;
+        using var fallbackRegistration =
+            context.EquipmentServices.RegisterRemoteCommandHandler(
+                (_, _) =>
+                {
+                    fallbackCalls++;
+                    return new ValueTask<GemRemoteCommandResult>(
+                        CreateAcceptedRemoteCommandResult());
+                });
+        using var exactRegistration =
+            context.EquipmentServices.RegisterRemoteCommand(
+                SecsItem.U4(7001),
+                (_, _) =>
+                {
+                    exactCalls++;
+                    return new ValueTask<GemRemoteCommandResult>(
+                        CreateAcceptedRemoteCommandResult());
+                });
+
+        AssertAcceptedRemoteCommandResult(
+            await context.HostServices.ExecuteRemoteCommandAsync(
+                CreateRemoteCommand(),
+                context.Token).ConfigureAwait(true));
+        Assert.Equal((1, 0), (exactCalls, fallbackCalls));
+
+        AssertAcceptedRemoteCommandResult(
+            await context.HostServices.ExecuteRemoteCommandAsync(
+                CreateRemoteCommand(SecsItem.Ascii("FALLBACK")),
+                context.Token).ConfigureAwait(true));
+        Assert.Equal((1, 1), (exactCalls, fallbackCalls));
+
+        exactRegistration.Dispose();
+        AssertAcceptedRemoteCommandResult(
+            await context.HostServices.ExecuteRemoteCommandAsync(
+                CreateRemoteCommand(),
+                context.Token).ConfigureAwait(true));
+        Assert.Equal((1, 2), (exactCalls, fallbackCalls));
     }
 
     private static async Task<GemRemoteCommand>
@@ -762,8 +806,11 @@ public sealed class GemFoundationTcpTests
             observed);
 
     private static GemRemoteCommand CreateRemoteCommand()
+        => CreateRemoteCommand(SecsItem.U4(7001));
+
+    private static GemRemoteCommand CreateRemoteCommand(SecsItem command)
         => new(
-            SecsItem.U4(7001),
+            command,
             new[]
             {
                 new GemRemoteCommandParameter(

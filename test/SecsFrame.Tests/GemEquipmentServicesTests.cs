@@ -326,6 +326,38 @@ public sealed class GemEquipmentServicesTests
     }
 
     [Fact]
+    public async Task Remote_command_entry_is_exact_disposable_and_replaceable()
+    {
+        await using var endpoint = new SecsEquipment(
+            CreateOptions(GetFreePort(), HsmsConnectionMode.Active));
+        using var services = new GemEquipmentServices(
+            endpoint,
+            new GemIdentity("EQ-01", "1.0"),
+            new TestGemClock(Epoch));
+        var command = SecsItem.Ascii("START");
+        GemRemoteCommandHandler handler = static (_, _) =>
+            new ValueTask<GemRemoteCommandResult>(
+                new GemRemoteCommandResult(
+                    0,
+                    Array.Empty<GemRemoteCommandParameterResult>()));
+
+        Assert.Throws<ArgumentNullException>(() =>
+            services.RegisterRemoteCommand(null!, handler));
+        Assert.Throws<ArgumentNullException>(() =>
+            services.RegisterRemoteCommand(command, null!));
+        var first = services.RegisterRemoteCommand(command, handler);
+        Assert.Equal(command, first.Command);
+        Assert.Throws<InvalidOperationException>(() =>
+            services.RegisterRemoteCommand(SecsItem.Ascii("START"), handler));
+        first.Dispose();
+        first.Dispose();
+        using var replacement = services.RegisterRemoteCommand(command, handler);
+        services.Dispose();
+        Assert.Throws<ObjectDisposedException>(() =>
+            services.RegisterRemoteCommand(SecsItem.U4(2), handler));
+    }
+
+    [Fact]
     public async Task Remote_command_acceptance_handler_is_exact_disposable_and_replaceable()
     {
         await using var endpoint = new SecsEquipment(

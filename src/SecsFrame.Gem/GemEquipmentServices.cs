@@ -18,6 +18,8 @@ public sealed class GemEquipmentServices : IDisposable
     private readonly Dictionary<SecsItem, GemEventReportLink> _eventReportLinks = new();
     private readonly Dictionary<SecsItem, GemAlarmRegistration> _alarms = new();
     private readonly List<GemAlarmRegistration> _alarmCatalog = new();
+    private readonly Dictionary<SecsItem, GemRemoteCommandEntryRegistration>
+        _remoteCommandEntries = new();
     private GemOnlineStateTransitionRegistration? _onlineStateTransitionHandler;
     private GemCollectionEventSendPolicyRegistration?
         _collectionEventSendPolicyHandler;
@@ -219,7 +221,7 @@ public sealed class GemEquipmentServices : IDisposable
         }
     }
 
-    /// <summary>Registers the single application remote-command handler.</summary>
+    /// <summary>Registers the single fallback remote-command handler.</summary>
     public GemRemoteCommandRegistration RegisterRemoteCommandHandler(
         GemRemoteCommandHandler handler)
     {
@@ -239,6 +241,34 @@ public sealed class GemEquipmentServices : IDisposable
                 handler,
                 UnregisterRemoteCommandHandler);
             _remoteCommandHandler = registration;
+            return registration;
+        }
+    }
+
+    /// <summary>Registers one exact runtime remote-command handler.</summary>
+    public GemRemoteCommandEntryRegistration RegisterRemoteCommand(
+        SecsItem command,
+        GemRemoteCommandHandler handler)
+    {
+        if (command is null)
+            throw new ArgumentNullException(nameof(command));
+        if (handler is null)
+            throw new ArgumentNullException(nameof(handler));
+
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            if (_remoteCommandEntries.ContainsKey(command))
+            {
+                throw new InvalidOperationException(
+                    $"Remote command {command} is already registered.");
+            }
+
+            var registration = new GemRemoteCommandEntryRegistration(
+                command,
+                handler,
+                UnregisterRemoteCommand);
+            _remoteCommandEntries.Add(command, registration);
             return registration;
         }
     }
@@ -400,6 +430,7 @@ public sealed class GemEquipmentServices : IDisposable
             _eventReportLinks.Clear();
             _alarms.Clear();
             _alarmCatalog.Clear();
+            _remoteCommandEntries.Clear();
             _onlineStateTransitionHandler = null;
             _collectionEventSendPolicyHandler = null;
             _alarmNotificationSendPolicyHandler = null;
@@ -603,7 +634,11 @@ public sealed class GemEquipmentServices : IDisposable
         lock (_gate)
         {
             acceptanceHandler = _remoteCommandAcceptanceHandler?.Handler;
-            handler = _remoteCommandHandler?.Handler;
+            handler = _remoteCommandEntries.TryGetValue(
+                command.Command,
+                out var registration)
+                ? registration.Handler
+                : _remoteCommandHandler?.Handler;
             communicationState = CommunicationState;
             onlineState = OnlineState;
         }
@@ -936,6 +971,21 @@ public sealed class GemEquipmentServices : IDisposable
         {
             if (ReferenceEquals(_remoteCommandHandler, registration))
                 _remoteCommandHandler = null;
+        }
+    }
+
+    private void UnregisterRemoteCommand(
+        GemRemoteCommandEntryRegistration registration)
+    {
+        lock (_gate)
+        {
+            if (_remoteCommandEntries.TryGetValue(
+                registration.Command,
+                out var current) &&
+                ReferenceEquals(current, registration))
+            {
+                _remoteCommandEntries.Remove(registration.Command);
+            }
         }
     }
 
