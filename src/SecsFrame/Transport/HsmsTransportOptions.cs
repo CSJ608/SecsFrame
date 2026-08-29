@@ -2,7 +2,10 @@ namespace SecsFrame;
 
 internal sealed class HsmsTransportOptions
 {
-    public HsmsTransportOptions(TimeSpan t5, TimeSpan t8)
+    public HsmsTransportOptions(
+        TimeSpan t5,
+        TimeSpan t8,
+        bool enableT8FaultObservation = false)
     {
         if (t5 <= TimeSpan.Zero)
         {
@@ -58,11 +61,14 @@ internal sealed class HsmsTransportOptions
         T8 = t8;
         T5Milliseconds = (int)t5Milliseconds;
         T8Milliseconds = (int)t8Milliseconds;
+        EnableT8FaultObservation = enableT8FaultObservation;
     }
 
     public TimeSpan T5 { get; }
 
     public TimeSpan T8 { get; }
+
+    public bool EnableT8FaultObservation { get; }
 
     internal int T5Milliseconds { get; }
 

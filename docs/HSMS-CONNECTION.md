@@ -15,7 +15,8 @@ StreamFrame 运输适配、HSMS-SS 会话 actor 和数据事务 actor，调用�
 - 接收入站 Primary 或未匹配消息，并使用不可伪造令牌回复一次；
 - Linktest、Deselect 和 Separate 控制命令；
 - 状态、数据、未消费控制消息和解码失败的单消费者异步事件流；
-- 默认关闭、与业务事件独立的完整控制消息头元数据观测流。
+- 默认关闭、与业务事件独立的完整控制消息头元数据观测流；
+- 默认关闭、容量有界的 T8 transport Session 前缀快照观测流。
 
 Host/Equipment 是后续业务能力角色，不由 Active/Passive 推断。
 需要按运行期 Stream/Function 处理 Primary 时，可在本事件流上组合
@@ -37,6 +38,8 @@ Host/Equipment 是后续业务能力角色，不由 Active/Passive 推断。
 | T7 | TCP 建立后等待进入 Selected |
 | T8 | 未完成消息接收进展等待 |
 | EnableControlMessageObservation | 是否创建完整控制消息元数据观测流；默认 false |
+| EnableTransportFaultObservation | 是否创建 T8 前缀快照观测流；默认 false |
+| TransportFaultObservationCapacity | T8 队列容量；满时丢弃最旧项，默认 16 |
 
 仓库没有内置或暗示标准默认值。T5 必须能无损转换成 StreamFrame 使用的
 整毫秒范围；Passive 监听重试不被解释成 T5。每个取值应依据团队合法获得
@@ -122,6 +125,28 @@ await foreach (var observation in connection
 十字节 <code>HsmsMessageHeader</code>。它不含 Body、原始 TCP/帧字节、
 transport Session generation 或时间戳，也不改变未认领
 <code>ControlMessageReceived</code> 业务事件的既有行为。
+
+T8 原始诊断必须另外显式设置
+<code>EnableTransportFaultObservation</code>。该流不占用业务事件消费者：
+
+~~~csharp
+await foreach (var fault in connection
+    .GetTransportFaultObservationsAsync(cancellationToken))
+{
+    var record = SecsTraceTransportFaultRecord.Create(
+        DateTimeOffset.UtcNow,
+        fault,
+        SecsTraceTransportFaultCaptureOptions.MetadataOnly());
+}
+~~~
+
+<code>HsmsTransportFaultObservation</code> 保留
+<code>IncompleteFrameTimeout</code>、StreamFrame TCP Session ID、actor
+观察状态和防御性复制的前缀快照。快照最多 8 KiB，可能包含四字节 HSMS
+长度前缀；StreamFrame 2.5.0 不报告原缓冲总长度或完整性，因此不得把它
+解释成完整 TCP 片段。队列按配置容量保留最新项，满时丢弃最旧项而不阻塞
+协议 actor；应用启用后应持续消费。该观测在对应会话关闭事件处理前写入，
+但两个独立异步流之间不承诺消费者可见的全局顺序。
 
 带错误的状态事件和解码失败事件还会提供可选
 <code>HsmsDiagnostic</code>，用于按稳定代码、层级、操作与计时器处理，

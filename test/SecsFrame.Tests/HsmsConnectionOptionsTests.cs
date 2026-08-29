@@ -29,6 +29,10 @@ public sealed class HsmsConnectionOptionsTests
         Assert.Equal(TimeSpan.FromSeconds(10), options.T7);
         Assert.Equal(TimeSpan.FromSeconds(5), options.T8);
         Assert.False(options.EnableControlMessageObservation);
+        Assert.False(options.EnableTransportFaultObservation);
+        Assert.Equal(
+            HsmsConnectionOptions.DefaultTransportFaultObservationCapacity,
+            options.TransportFaultObservationCapacity);
     }
 
     [Fact]
@@ -47,6 +51,38 @@ public sealed class HsmsConnectionOptionsTests
             enableControlMessageObservation: true);
 
         Assert.True(options.EnableControlMessageObservation);
+    }
+
+    [Fact]
+    public void Transport_fault_observation_can_be_explicitly_bounded()
+    {
+        var options = new HsmsConnectionOptions(
+            IPAddress.Loopback,
+            5000,
+            HsmsConnectionMode.Active,
+            10,
+            TimeSpan.FromSeconds(45),
+            TimeSpan.FromSeconds(10),
+            TimeSpan.FromSeconds(5),
+            TimeSpan.FromSeconds(10),
+            TimeSpan.FromSeconds(5),
+            enableTransportFaultObservation: true,
+            transportFaultObservationCapacity: 3);
+
+        Assert.True(options.EnableTransportFaultObservation);
+        Assert.Equal(3, options.TransportFaultObservationCapacity);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new HsmsConnectionOptions(
+                IPAddress.Loopback,
+                5000,
+                HsmsConnectionMode.Active,
+                10,
+                TimeSpan.FromSeconds(45),
+                TimeSpan.FromSeconds(10),
+                TimeSpan.FromSeconds(5),
+                TimeSpan.FromSeconds(10),
+                TimeSpan.FromSeconds(5),
+                transportFaultObservationCapacity: 0));
     }
 
     [Fact]

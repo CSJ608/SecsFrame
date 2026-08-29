@@ -13,6 +13,7 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
     private readonly Channel<MachineInput> _inputs;
     private readonly Channel<HsmsSessionEvent> _events;
     private readonly Channel<HsmsControlMessageObservation>? _controlMessageObservations;
+    private readonly Channel<HsmsTransportFaultObservation>? _transportFaultObservations;
     private readonly HashSet<PendingDataSend> _pendingDataSends = new();
     private CancellationTokenSource? _lifetime;
     private Task? _transportPump;
@@ -62,6 +63,19 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
                         AllowSynchronousContinuations = false,
                     });
         }
+        if (options.EnableTransportFaultObservation)
+        {
+            _transportFaultObservations =
+                Channel.CreateBounded<HsmsTransportFaultObservation>(
+                    new BoundedChannelOptions(
+                        options.TransportFaultObservationCapacity)
+                    {
+                        SingleReader = true,
+                        SingleWriter = true,
+                        AllowSynchronousContinuations = false,
+                        FullMode = BoundedChannelFullMode.DropOldest,
+                    });
+        }
     }
 
     public HsmsSessionState State
@@ -106,6 +120,21 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
         var observations = _controlMessageObservations ??
             throw new InvalidOperationException(
                 "HSMS control-message observation is not enabled.");
+        var reader = observations.Reader;
+        while (await reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            while (reader.TryRead(out var observation))
+                yield return observation;
+        }
+    }
+
+    public async IAsyncEnumerable<HsmsTransportFaultObservation>
+        GetTransportFaultObservationsAsync(
+            [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var observations = _transportFaultObservations ??
+            throw new InvalidOperationException(
+                "HSMS transport-fault observation is not enabled.");
         var reader = observations.Reader;
         while (await reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
         {
@@ -210,6 +239,7 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
         _separateCompletion?.TrySetCanceled();
         _events.Writer.TryComplete();
         _controlMessageObservations?.Writer.TryComplete();
+        _transportFaultObservations?.Writer.TryComplete();
         _lifetime?.Dispose();
     }
 
@@ -263,6 +293,7 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
             CancelT7();
             _events.Writer.TryComplete();
             _controlMessageObservations?.Writer.TryComplete();
+            _transportFaultObservations?.Writer.TryComplete();
         }
     }
 
@@ -333,6 +364,18 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
             case HsmsTransportEventKind.FrameReceived:
                 if (transportEvent.SessionId == _sessionId)
                     ProcessFrame(transportEvent.Frame!);
+                break;
+            case HsmsTransportEventKind.TransportFaultObserved:
+                if (transportEvent.SessionId == _sessionId &&
+                    _transportFaultObservations is not null)
+                {
+                    _transportFaultObservations.Writer.TryWrite(
+                        new HsmsTransportFaultObservation(
+                            transportEvent.FaultKind!.Value,
+                            transportEvent.SessionId.Value,
+                            State,
+                            transportEvent.Snapshot.Span));
+                }
                 break;
             case HsmsTransportEventKind.SessionClosed:
                 if (transportEvent.SessionId == _sessionId)

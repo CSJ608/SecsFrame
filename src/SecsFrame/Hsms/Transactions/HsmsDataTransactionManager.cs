@@ -86,6 +86,10 @@ internal sealed class HsmsDataTransactionManager : IAsyncDisposable
         GetControlMessageObservationsAsync(CancellationToken cancellationToken)
         => _session.GetControlMessageObservationsAsync(cancellationToken);
 
+    public IAsyncEnumerable<HsmsTransportFaultObservation>
+        GetTransportFaultObservationsAsync(CancellationToken cancellationToken)
+        => _session.GetTransportFaultObservationsAsync(cancellationToken);
+
     public Task<HsmsDataMessage?> SendAsync(
         ushort sessionId,
         SecsMessage primary,

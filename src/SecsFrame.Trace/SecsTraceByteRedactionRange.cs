@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 
 namespace SecsFrame.Trace;
 
-/// <summary>Identifies a zero-based range within an HSMS data-message body.</summary>
+/// <summary>Identifies a zero-based range within a fault-sample byte payload.</summary>
 [StructLayout(LayoutKind.Auto)]
 public readonly record struct SecsTraceByteRedactionRange
 {

@@ -12,10 +12,11 @@
 - 显式启用的完整控制观测或公共未认领控制事件的十字节头元数据导出与
   严格读取。
 - 已成帧但 SECS-II Body 解码失败的显式分级故障样本。
+- 显式启用、会话关联且容量有界的 T8 前缀快照分级导出。
 
-当前切片不是原始网络抓包器，不记录 TCP 字节、transport Session generation、
-控制帧的线上原始字节或异常对象，也不会接管 <code>HsmsConnection</code> 的
-单消费者事件流。
+当前切片不是原始网络抓包器；除显式启用的 T8 有界前缀外，不记录 TCP
+字节、transport Session generation、控制帧的线上原始字节或异常对象，
+也不会接管 <code>HsmsConnection</code> 的单消费者事件流。
 应用应在自己的事件循环中从 <code>HsmsIncomingDataMessage</code> 创建接收记录，
 并在调用发送 API 前显式创建发送记录。
 
@@ -184,6 +185,64 @@ payload 捕获默认限制为 64 KiB；超限立即失败，不截断样本。�
 未完成片段，也没有重放 API。清零范围可验证，但哪些范围包含敏感数据仍是
 调用方的数据分类责任；未经独立审查不得把 Redacted 等同于已安全公开。
 
+## T8 前缀快照
+
+连接必须先显式启用独立且容量有界的 T8 观测流；Trace 不自动订阅：
+
+~~~csharp
+var options = new HsmsConnectionOptions(
+    ipAddress,
+    port,
+    HsmsConnectionMode.Passive,
+    sessionId,
+    t3,
+    t5,
+    t6,
+    t7,
+    t8,
+    enableTransportFaultObservation: true,
+    transportFaultObservationCapacity: 16);
+
+await foreach (var fault in connection
+    .GetTransportFaultObservationsAsync(cancellationToken))
+{
+    var record = SecsTraceTransportFaultRecord.Create(
+        DateTimeOffset.UtcNow,
+        fault,
+        SecsTraceTransportFaultCaptureOptions.MetadataOnly());
+
+    var text = new SecsTraceTransportFaultCodec().Encode(
+        new[] { record });
+}
+~~~
+
+观测保留 <code>IncompleteFrameTimeout</code>、transport Session ID、actor
+状态和 StreamFrame 已复制的前缀。通道满时丢弃最旧项而不阻塞协议 actor；
+默认关闭时不创建通道。快照最多 8 KiB，可能包含四字节 HSMS 长度前缀，
+但 StreamFrame 2.5.0 不提供原缓冲总长度或完整性标记，因此不得宣称它是
+完整 TCP 片段。
+
+<code>SecsTraceTransportFaultCaptureOptions</code> 同样要求明确选择
+MetadataOnly、RedactedPayload 或 RawPayload。payload 模式不允许截断，
+超过调用方收紧后的限制立即失败；Redacted 范围相对快照起点，必须有序、
+非重叠、不越界并在记录中全部为零。记录和公共观测都防御性复制字节。
+
+独立信封使用九个单空格分隔字段：
+
+~~~text
+SecsFrame-TransportFaultTrace/1
+TransportFault 2026-08-29T05:00:00.0000000Z IncompleteFrameTimeout Connected 17 RedactedPayload 10 4:6 0000000A000000000000
+~~~
+
+字段依次为 UTC 时间、fault kind、HSMS 状态、transport Session ID、数据
+分类、StreamFrame 实际提供的快照长度、脱敏范围和大写十六进制快照。默认
+codec 只允许 MetadataOnly；带快照的导入和导出必须再次显式启用。信封不含
+异常、原缓冲总长度、分片时序或完整性推断，也没有重放 API。
+
+当前只接受 T8。StreamFrame 2.5.0 的其他 FrameError 不携带原始 session/epoch，
+SecsFrame 不会以回调时读取当前 Session ID 的方式把它们包装成严格会话关联
+样本。
+
 ## 结构化脱敏
 
 脱敏发生在不可变 Item 树上，而不是对 SML 文本做字符串替换：
@@ -278,4 +337,6 @@ var results = await new SecsTraceReplayer().ReplayWithTimingAsync(
 测试。控制信封另有完整 Select/Linktest 双向观测、未匹配 Reject 黄金向量、
 未知 SType 往返、Data Message 拒绝、严格字段与资源限制测试。故障样本
 信封另有三种分类、payload 默认拒绝、范围清零复核、防御性复制、畸形字段
-和 Body/记录/文本资源限制测试。
+和 Body/记录/文本资源限制测试。T8 信封另有真实 TCP 前缀、旧 Session
+过滤、有界队列、三种分类、默认拒绝、脱敏复核、畸形字段和快照/记录/文本
+资源限制测试。

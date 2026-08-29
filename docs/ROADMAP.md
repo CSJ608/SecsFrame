@@ -114,7 +114,8 @@ E30-0526 材料。下一可执行优先级已转入阶段 3；SML 调试读写�
 - [x] 公共未认领控制消息的受限头元数据 Trace 导出和严格读取。
 - [x] 默认关闭、不含 Body/原始字节的完整控制面头元数据观测。
 - [x] 显式分级、默认不导出 Body 的数据消息解码失败样本。
-- T8/成帧失败原始片段等运输层互操作诊断扩展。
+- [x] 默认关闭、有界且显式分级的 T8 前缀快照诊断。
+- 其他成帧失败原始片段等运输层互操作诊断扩展。
 
 当前 Trace 基线不接管连接事件流，也不把原始标识写回线上。时序重放默认
 关闭，并继续经过显式 allowlist 与公共发送 API。诊断快照始终排除
@@ -124,8 +125,13 @@ Body、原始线上字节、transport generation 或时间戳。后续故障原�
 已先覆盖公共事件中忠实保留的完整 data frame：捕获分为 MetadataOnly、
 RedactedPayload 与 RawPayload，payload codec 默认关闭，声明脱敏范围必须
 全为零且可严格复核。它不包含 TCP 长度前缀或分片，也不能进入重放。
-T8/成帧失败片段仍需先把 StreamFrame 原始错误数据与 transport session
-安全关联，并保持默认不捕获、容量限制和跨会话隔离。
+T8 现通过默认关闭的独立流与当前 transport Session ID 关联；队列容量有界、
+满时丢弃最旧项，StreamFrame 提供的最多 8 KiB 前缀再按 MetadataOnly、
+RedactedPayload 或 RawPayload 捕获，payload codec 默认关闭。该前缀可能含
+四字节长度头，但上游不报告原缓冲总长度或完整性，不能解释为完整 TCP 片段，
+也不能进入重放。其他 DecodeFailed、IncompleteFrameOverflow 与
+DiscardedByResync 仍需要 StreamFrame 在 FrameError 中提供原始 session/epoch
+归属后再扩展，不能用回调时读取当前 Session ID 替代严格关联。
 E173 SMN 与 E172 SEDD 仍需先核对授权标准及允许分发的 Schema/表示形式。
 
 ## 发布门槛

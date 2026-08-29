@@ -36,8 +36,8 @@ ID 一样在 Connected 发布点分配，闭合状态已经对外可见但会话
 [PR #52](https://github.com/CSJ608/StreamFrame/pull/52)。
 
 SecsFrame 不再维护基于原始字节回调的 T8 监视器、发送确认计数器、会话
-信封 codec 或自建 TCP Session ID。公共 API 和内部
-<code>IHsmsTransport</code> 契约保持不变，上层 HSMS 状态机不直接依赖
+信封 codec 或自建 TCP Session ID。内部 <code>IHsmsTransport</code> 现可在
+显式启用时转发 T8 的会话关联前缀快照；上层 HSMS 状态机仍不直接依赖
 StreamFrame 类型。
 
 ## 会话边界
@@ -83,13 +83,23 @@ StreamFrame 只在已有未完成帧时运行该超时：空闲连接和完整�
 触发；接收进展重置计时；到期先发布
 <code>FrameErrorKind.IncompleteFrameTimeout</code>，再拆除对应会话。
 适配器把该诊断转换为携带 transport Session ID 的
-<code>HsmsT8TimeoutException</code>，不再次请求重连。
+<code>HsmsT8TimeoutException</code>，不再次请求重连。公共连接另提供默认
+关闭的独立 T8 观测流：适配器在错误回调同步执行期间验证当前 Session ID，
+先复制 <code>FrameErrorEventArgs.Bytes</code>，再由会话 actor 过滤旧 Session
+并附加观察状态。默认路径不发布该 transport fault 事件。
+
+StreamFrame 2.5.0 的 T8 Bytes 是已复制、最多 8 KiB 的缓冲前缀，可能包含
+四字节 HSMS 长度头；API 不提供原缓冲总长度或完整性，SecsFrame 因而只称
+其为前缀快照。观测通道容量显式可配，满时丢弃最旧项，不能反向阻塞协议
+actor。DecodeFailed、IncompleteFrameOverflow 和 DiscardedByResync 的公共
+FrameError 不携带 session/epoch，本切片不把它们映射成会话关联观测。
 
 ## 验证边界
 
 适配器单元测试覆盖原生 Session ID、迟到消息、发送完成、并发入队、会话
-失效、显式关闭原因、关闭/释放竞态和 T8 诊断映射。真实 TCP 回环测试覆盖
-分片帧收发、实际 T8 到期，以及会话替换时排队发送的精确失效与新 Socket
+失效、显式关闭原因、关闭/释放竞态、T8 诊断映射、快照复制、旧会话过滤和
+有界队列。真实 TCP 回环测试覆盖分片帧收发、实际 T8 到期及前缀快照，以及
+会话替换时排队发送的精确失效与新 Socket
 内容隔离；Passive 重连竞态测试反复并发对端关闭与本地显式关闭，验证监听
 恢复、Session ID 单调递增和原会话精确关闭。完整套件继续覆盖 T3/T6 从
 发送完成点启动以及旧会话不重放。

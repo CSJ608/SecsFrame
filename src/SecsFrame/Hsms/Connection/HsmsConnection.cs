@@ -25,6 +25,7 @@ public sealed class HsmsConnection : IAsyncDisposable
     private int _state = (int)HsmsSessionState.Disconnected;
     private int _eventReaderClaimed;
     private int _controlMessageObservationReaderClaimed;
+    private int _transportFaultObservationReaderClaimed;
     private int _started;
     private int _disposed;
 
@@ -113,6 +114,32 @@ public sealed class HsmsConnection : IAsyncDisposable
         }
 
         return ReadControlMessageObservationsAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Gets the single-consumer stream of bounded T8 prefix snapshots.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels only this observation-stream read.</param>
+    /// <remarks>
+    /// This stream is independent from <see cref="GetEventsAsync"/> and is available
+    /// only when <see cref="HsmsConnectionOptions.EnableTransportFaultObservation"/>
+    /// is enabled. Each item contains up to the first 8 KiB retained by StreamFrame,
+    /// can include the four-byte HSMS length prefix, and is not guaranteed complete.
+    /// The queue discards its oldest item at the configured capacity. Only one reader
+    /// can be active at a time.
+    /// </remarks>
+    public IAsyncEnumerable<HsmsTransportFaultObservation>
+        GetTransportFaultObservationsAsync(
+            CancellationToken cancellationToken = default)
+    {
+        ThrowIfNotRunning();
+        if (!Options.EnableTransportFaultObservation)
+        {
+            throw new InvalidOperationException(
+                "HSMS transport-fault observation is not enabled in the connection options.");
+        }
+
+        return ReadTransportFaultObservationsAsync(cancellationToken);
     }
 
     /// <summary>Waits until this connection next reaches Selected state.</summary>
@@ -225,14 +252,19 @@ public sealed class HsmsConnection : IAsyncDisposable
             options.IpAddress,
             options.Port,
             isActive,
-            new HsmsTransportOptions(options.T5, options.T8));
+            new HsmsTransportOptions(
+                options.T5,
+                options.T8,
+                options.EnableTransportFaultObservation));
         var session = new HsmsSessionStateMachine(
             transport,
             new HsmsSessionOptions(
                 options.ConnectionMode,
                 options.T6,
                 options.T7,
-                options.EnableControlMessageObservation));
+                options.EnableControlMessageObservation,
+                options.EnableTransportFaultObservation,
+                options.TransportFaultObservationCapacity));
         return new HsmsDataTransactionManager(
             session,
             new HsmsDataTransactionOptions(options.T3));
@@ -359,6 +391,35 @@ public sealed class HsmsConnection : IAsyncDisposable
         {
             Interlocked.Exchange(
                 ref _controlMessageObservationReaderClaimed,
+                0);
+        }
+    }
+
+    private async IAsyncEnumerable<HsmsTransportFaultObservation>
+        ReadTransportFaultObservationsAsync(
+            [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        if (Interlocked.Exchange(
+            ref _transportFaultObservationReaderClaimed,
+            1) != 0)
+        {
+            throw new InvalidOperationException(
+                "The HSMS transport-fault observation stream already has a consumer.");
+        }
+
+        try
+        {
+            await foreach (var observation in _transactions
+                .GetTransportFaultObservationsAsync(cancellationToken)
+                .ConfigureAwait(false))
+            {
+                yield return observation;
+            }
+        }
+        finally
+        {
+            Interlocked.Exchange(
+                ref _transportFaultObservationReaderClaimed,
                 0);
         }
     }

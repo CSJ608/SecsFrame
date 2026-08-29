@@ -21,6 +21,14 @@
 
 ### 新增
 
+- 增加默认关闭的独立 T8 transport fault 观测流，保留 StreamFrame TCP
+  Session ID、actor 状态与最多 8 KiB 的未完成帧前缀快照。
+- T8 观测队列容量显式可配且满时丢弃最旧项，不阻塞协议 actor；默认路径
+  不创建该通道，旧会话观测不会归入替换会话。
+- 增加独立 <code>SecsFrame-TransportFaultTrace/1</code> 信封，沿用
+  MetadataOnly、RedactedPayload 与 RawPayload 分级，payload codec 默认关闭。
+- 增加真实 TCP T8、Session 过滤、队列容量、黄金向量、脱敏复核、防御性
+  复制和资源限制测试；快照不声明完整 TCP 片段且不能进入重放路径。
 - 增加独立 <code>SecsFrame-FaultSampleTrace/1</code> 信封，为公共
   <code>DataMessageDecodeFailed</code> 事件提供已成帧 HSMS data body 样本。
 - 捕获必须显式选择 MetadataOnly、RedactedPayload 或 RawPayload；默认 codec
