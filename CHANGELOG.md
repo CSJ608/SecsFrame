@@ -6,6 +6,10 @@
 
 ### 修复
 
+- 升级官方 StreamFrame 2.5.0，采用自适应发送编码缓冲，并获得 Passive
+  接受循环代次门控，避免显式关闭与自动重连竞速泄漏监听器。
+- 增加真实 TCP Passive 重连竞态测试，连续验证监听恢复、Session ID 单调
+  递增和原会话精确关闭。
 - 升级官方 StreamFrame 2.4.0，采用 Connected 发布点的会话 epoch 收口，
   并获得 Passive 接受重试出锁与监听端口立即重绑加固。
 - 升级官方 StreamFrame 2.3.1，修复迟到旧会话故障污染活会话状态、旧会话

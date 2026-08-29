@@ -10,7 +10,7 @@
 
 - [x] 完整 SECS-II Item 类型、嵌套 List 和严格二进制编解码。
 - [x] 动态 SecsMessage、可选单根 Item 与 HSMS Data Message Payload 编解码。
-- [x] 迁移到 StreamFrame 2.4.0 原生会话绑定、写出确认、会话 epoch/监听
+- [x] 迁移到 StreamFrame 2.5.0 原生会话绑定、写出确认、会话 epoch/监听
   竞态修复和未完成帧超时。
 - [x] Active/Passive 共用状态机的 Select/Select Response、Separate、
   T6/T7、System Bytes 关联和会话失效处理。
@@ -27,8 +27,9 @@
 - [x] Host、Equipment 双角色端点及两种 Active/Passive 拓扑的双向回环。
 
 阶段 1 的工程能力已经形成完整基础链路，StreamFrame #38/#39 的正式包
-迁移与 2.3.1 会话隔离修复已经完成；当前固定 2.4.0，并继续验证发布窗口
-epoch 收口与 Passive 监听加固。后续切片继续扩展 GEM 通用行为。任何
+迁移与 2.3.1 会话隔离修复已经完成；2.4.0 又收口发布窗口 epoch 并加固
+Passive 监听。当前固定 2.5.0，并增加接受循环代次门控与自适应发送缓冲的
+本地回归证据。后续切片继续扩展 GEM 通用行为。任何
 标准默认值
 和完整合规结论都依赖团队合法获得的 E37/E37.1 及相关 GEM 标准副本与
 一致性测试。
