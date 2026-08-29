@@ -528,41 +528,9 @@ public sealed class GemFoundationTcpTests
 
     private static async Task AssertRemoteCommandsAsync(GemTcpContext context)
     {
-        var received = new TaskCompletionSource<GemRemoteCommand>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        using (context.EquipmentServices.RegisterRemoteCommandHandler(
-            (command, cancellationToken) =>
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                received.TrySetResult(command);
-                return new ValueTask<GemRemoteCommandResult>(
-                    new GemRemoteCommandResult(
-                        0,
-                        new[]
-                        {
-                            new GemRemoteCommandParameterResult(
-                                SecsItem.Ascii("SPEED"),
-                                0),
-                            new GemRemoteCommandParameterResult(
-                                SecsItem.U1(2),
-                                7),
-                        }));
-            }))
-        {
-            var result = await context.HostServices.ExecuteRemoteCommandAsync(
-                CreateRemoteCommand(),
-                context.Token).ConfigureAwait(true);
-            Assert.Equal((byte)0, result.Acknowledgement);
-            Assert.Equal(2, result.ParameterResults.Count);
-            Assert.Equal(
-                SecsItem.Ascii("SPEED"),
-                result.ParameterResults[0].Name);
-            Assert.Equal((byte)0, result.ParameterResults[0].Acknowledgement);
-            Assert.Equal(SecsItem.U1(2), result.ParameterResults[1].Name);
-            Assert.Equal((byte)7, result.ParameterResults[1].Acknowledgement);
-        }
-
-        var command = await received.Task.ConfigureAwait(true);
+        var command =
+            await AssertRemoteCommandAcceptancePolicyAsync(context)
+                .ConfigureAwait(true);
         Assert.Equal(SecsItem.U4(7001), command.Command);
         Assert.Equal(2, command.Parameters.Count);
         Assert.Equal(SecsItem.Ascii("SPEED"), command.Parameters[0].Name);
@@ -572,12 +540,134 @@ public sealed class GemFoundationTcpTests
             SecsItem.List(SecsItem.Boolean(true), SecsItem.F8(1.5)),
             command.Parameters[1].Value);
 
-        var unavailable = await context.HostServices.ExecuteRemoteCommandAsync(
-            CreateRemoteCommand(),
-            context.Token).ConfigureAwait(true);
-        Assert.Equal((byte)1, unavailable.Acknowledgement);
-        Assert.Empty(unavailable.ParameterResults);
+        var acceptanceCalls = 0;
+        using (context.EquipmentServices.RegisterRemoteCommandAcceptanceHandler(
+            (_, _, _, _) =>
+            {
+                acceptanceCalls++;
+                return new ValueTask<bool>(true);
+            }))
+        {
+            var unavailable = await context.HostServices.ExecuteRemoteCommandAsync(
+                CreateRemoteCommand(),
+                context.Token).ConfigureAwait(true);
+            AssertRejectedRemoteCommandResult(unavailable);
+        }
+
+        Assert.Equal(0, acceptanceCalls);
     }
+
+    private static async Task<GemRemoteCommand>
+        AssertRemoteCommandAcceptancePolicyAsync(GemTcpContext context)
+    {
+        var received = new TaskCompletionSource<GemRemoteCommand>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var executionCount = 0;
+        using (context.EquipmentServices.RegisterRemoteCommandHandler(
+            (command, cancellationToken) =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                executionCount++;
+                received.TrySetResult(command);
+                return new ValueTask<GemRemoteCommandResult>(
+                    CreateAcceptedRemoteCommandResult());
+            }))
+        {
+            var acceptCommands = false;
+            var observed = new List<(
+                GemCommunicationState Communication,
+                GemOnlineState Online,
+                SecsItem Command)>();
+            using (context.EquipmentServices.RegisterRemoteCommandAcceptanceHandler(
+                (communication, online, command, cancellationToken) =>
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    observed.Add((communication, online, command.Command));
+                    return new ValueTask<bool>(acceptCommands);
+                }))
+            {
+                var rejected = await context.HostServices.ExecuteRemoteCommandAsync(
+                    CreateRemoteCommand(),
+                    context.Token).ConfigureAwait(true);
+                AssertRejectedRemoteCommandResult(rejected);
+                Assert.Equal(0, executionCount);
+                Assert.Equal(
+                    GemCommunicationState.Communicating,
+                    context.EquipmentServices.CommunicationState);
+                Assert.Equal(
+                    GemOnlineState.Online,
+                    context.EquipmentServices.OnlineState);
+
+                acceptCommands = true;
+                AssertAcceptedRemoteCommandResult(
+                    await context.HostServices.ExecuteRemoteCommandAsync(
+                        CreateRemoteCommand(),
+                        context.Token).ConfigureAwait(true));
+                Assert.Equal(1, executionCount);
+            }
+
+            AssertAcceptedRemoteCommandResult(
+                await context.HostServices.ExecuteRemoteCommandAsync(
+                    CreateRemoteCommand(),
+                    context.Token).ConfigureAwait(true));
+            Assert.Equal(2, executionCount);
+            AssertRemoteCommandPolicyObservations(observed);
+        }
+
+        return await received.Task.ConfigureAwait(true);
+    }
+
+    private static GemRemoteCommandResult CreateAcceptedRemoteCommandResult()
+        => new(
+            0,
+            new[]
+            {
+                new GemRemoteCommandParameterResult(
+                    SecsItem.Ascii("SPEED"),
+                    0),
+                new GemRemoteCommandParameterResult(
+                    SecsItem.U1(2),
+                    7),
+            });
+
+    private static void AssertAcceptedRemoteCommandResult(
+        GemRemoteCommandResult result)
+    {
+        Assert.Equal((byte)0, result.Acknowledgement);
+        Assert.Equal(2, result.ParameterResults.Count);
+        Assert.Equal(
+            SecsItem.Ascii("SPEED"),
+            result.ParameterResults[0].Name);
+        Assert.Equal((byte)0, result.ParameterResults[0].Acknowledgement);
+        Assert.Equal(SecsItem.U1(2), result.ParameterResults[1].Name);
+        Assert.Equal((byte)7, result.ParameterResults[1].Acknowledgement);
+    }
+
+    private static void AssertRejectedRemoteCommandResult(
+        GemRemoteCommandResult result)
+    {
+        Assert.Equal((byte)1, result.Acknowledgement);
+        Assert.Empty(result.ParameterResults);
+    }
+
+    private static void AssertRemoteCommandPolicyObservations(
+        IReadOnlyList<(
+            GemCommunicationState Communication,
+            GemOnlineState Online,
+            SecsItem Command)> observed)
+        => Assert.Equal(
+            new[]
+            {
+                (
+                    GemCommunicationState.Communicating,
+                    GemOnlineState.Online,
+                    SecsItem.U4(7001)),
+                (
+                    GemCommunicationState.Communicating,
+                    GemOnlineState.Online,
+                    SecsItem.U4(7001)),
+            },
+            observed);
 
     private static GemRemoteCommand CreateRemoteCommand()
         => new(
