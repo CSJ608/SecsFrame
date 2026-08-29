@@ -253,27 +253,15 @@ public sealed class GemFoundationTcpTests
             eventId,
             reportId,
             emptyReportId).ConfigureAwait(true);
-        var received = new TaskCompletionSource<GemCollectionEvent>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        using (context.HostServices.RegisterCollectionEventHandler(
-            (collectionEvent, cancellationToken) =>
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                received.TrySetResult(collectionEvent);
-                return new ValueTask<bool>(true);
-            }))
-        {
-            await context.EquipmentServices.SendCollectionEventAsync(
-                SecsItem.U4(9002),
-                eventId,
-                context.Token).ConfigureAwait(true);
-        }
-
+        var collectionEvent =
+            await AssertCollectionEventSendPolicyAsync(context, eventId)
+                .ConfigureAwait(true);
         AssertCollectionEvent(
-            await received.Task.ConfigureAwait(true),
+            collectionEvent,
             eventId,
             reportId,
             emptyReportId);
+        var providerCalls = context.CollectionEventProviderCalls;
         var rejectedEvent = await Assert.ThrowsAsync<GemRequestRejectedException>(
             () => context.EquipmentServices.SendCollectionEventAsync(
                 SecsItem.U4(9003),
@@ -281,6 +269,61 @@ public sealed class GemFoundationTcpTests
                 context.Token)).ConfigureAwait(true);
         Assert.Equal(GemOperation.CollectionEvent, rejectedEvent.Operation);
         Assert.Equal((byte)1, rejectedEvent.Acknowledgement);
+        Assert.Equal(providerCalls + 1, context.CollectionEventProviderCalls);
+    }
+
+    private static async Task<GemCollectionEvent>
+        AssertCollectionEventSendPolicyAsync(
+            GemTcpContext context,
+            SecsItem eventId)
+    {
+        var received = new TaskCompletionSource<GemCollectionEvent>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var acceptSend = false;
+        var providerCalls = context.CollectionEventProviderCalls;
+        var observed = new List<(
+            GemCommunicationState Communication,
+            GemOnlineState Online,
+            SecsItem DataId,
+            SecsItem EventId)>();
+        using var hostRegistration =
+            context.HostServices.RegisterCollectionEventHandler(
+                (collectionEvent, _) =>
+                {
+                    received.TrySetResult(collectionEvent);
+                    return new ValueTask<bool>(true);
+                });
+        using var policyRegistration =
+            context.EquipmentServices.RegisterCollectionEventSendPolicyHandler(
+                (communication, online, dataId, observedEventId, _) =>
+                {
+                    observed.Add((communication, online, dataId, observedEventId));
+                    return new ValueTask<bool>(acceptSend);
+                });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => context.EquipmentServices.SendCollectionEventAsync(
+                SecsItem.U4(9000),
+                eventId,
+                context.Token)).ConfigureAwait(true);
+        Assert.Equal(providerCalls, context.CollectionEventProviderCalls);
+        Assert.False(received.Task.IsCompleted);
+
+        acceptSend = true;
+        await context.EquipmentServices.SendCollectionEventAsync(
+            SecsItem.U4(9002),
+            eventId,
+            context.Token).ConfigureAwait(true);
+
+        Assert.Equal(providerCalls + 1, context.CollectionEventProviderCalls);
+        Assert.Equal(2, observed.Count);
+        Assert.All(observed, item => Assert.Equal(
+            (GemCommunicationState.Communicating, GemOnlineState.Online, eventId),
+            (item.Communication, item.Online, item.EventId)));
+        Assert.Equal(
+            new[] { SecsItem.U4(9000), SecsItem.U4(9002) },
+            observed.Select(item => item.DataId));
+        return await received.Task.ConfigureAwait(true);
     }
 
     private static async Task AssertRejectedReportDefinitionAsync(
@@ -756,6 +799,7 @@ public sealed class GemFoundationTcpTests
         private readonly GemValueRegistration _variable2;
         private readonly GemValueRegistration _variable3;
         private readonly GemValueRegistration _constant;
+        private int _collectionEventProviderCalls;
         private Task _hostPump = Task.CompletedTask;
         private Task _equipmentPump = Task.CompletedTask;
 
@@ -783,7 +827,11 @@ public sealed class GemFoundationTcpTests
                 Clock);
             _variable1 = EquipmentServices.RegisterStatusVariable(
                 SecsItem.U4(1001),
-                static _ => new ValueTask<SecsItem>(SecsItem.Ascii("READY")));
+                _ =>
+                {
+                    Interlocked.Increment(ref _collectionEventProviderCalls);
+                    return new ValueTask<SecsItem>(SecsItem.Ascii("READY"));
+                });
             _variable2 = EquipmentServices.RegisterStatusVariable(
                 SecsItem.Ascii("TEMP"),
                 static _ => new ValueTask<SecsItem>(SecsItem.F8(23.5)));
@@ -810,6 +858,9 @@ public sealed class GemFoundationTcpTests
         internal TestGemClock Clock { get; }
 
         internal DateTimeOffset InitialTime { get; }
+
+        internal int CollectionEventProviderCalls =>
+            Volatile.Read(ref _collectionEventProviderCalls);
 
         internal CancellationToken Token => _lifetime.Token;
 

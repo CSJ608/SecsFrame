@@ -32,8 +32,9 @@ Deselect、Separate、T6/T7 和 Selected 数据门控。内部数据事务 actor
 配置、动态消息收发、状态等待和单消费者事件流。
 独立 <code>SecsFrame.Gem</code> 已提供可配置 GEM 通用行为，包含双向通讯
 建立及应用接受策略、同会话显式重试恢复、上下线与应用转换策略、动态变量/
-常量、应用托管时钟、报告定义、事件链接和 Collection Event、报警目录查询、
-单报警发送启停，以及最小报警通知、远程命令链路和应用状态接受策略。
+常量、应用托管时钟、报告定义、事件链接和带 Equipment 应用发送策略的
+Collection Event、报警目录查询、单报警发送启停，以及最小报警通知、
+远程命令链路和应用状态接受策略。
 Item 用法与边界见
 [docs/SECS-II-ITEMS.md](docs/SECS-II-ITEMS.md)，消息集成见
 [docs/SECS-MESSAGES.md](docs/SECS-MESSAGES.md)，传输适配边界见
