@@ -22,6 +22,8 @@ public sealed class GemFoundationTcpTests
         await AssertClockAsync(context).ConfigureAwait(true);
         await AssertCommunicationReestablishmentPolicyAsync(context)
             .ConfigureAwait(true);
+        await AssertExplicitCommunicationRecoveryAsync(context)
+            .ConfigureAwait(true);
         await context.HostServices.RequestOfflineAsync(context.Token)
             .ConfigureAwait(true);
         await WaitUntilAsync(
@@ -30,6 +32,62 @@ public sealed class GemFoundationTcpTests
         Assert.Equal(GemOnlineState.Offline, context.HostServices.OnlineState);
         Assert.Equal(GemOnlineState.Offline, context.EquipmentServices.OnlineState);
         await context.Host.LinktestAsync(context.Token).ConfigureAwait(true);
+    }
+
+    [Fact]
+    public async Task Canceled_communication_recovery_does_not_resume_after_selection()
+    {
+        var port = GetFreePort();
+        await using var host = new SecsHost(
+            CreateOptions(port, HsmsConnectionMode.Active));
+        await using var equipment = new SecsEquipment(
+            CreateOptions(port, HsmsConnectionMode.Passive));
+        using var hostServices = new GemHostServices(
+            host,
+            new GemIdentity("HOST-01", "2.0"));
+        using var equipmentServices = new GemEquipmentServices(
+            equipment,
+            new GemIdentity("EQ-01", "1.5"),
+            new TestGemClock(DateTimeOffset.MinValue));
+        using var lifetime = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        using var waiting = new CancellationTokenSource(
+            TimeSpan.FromMilliseconds(100));
+        var establishmentCalls = 0;
+        using var registration =
+            equipmentServices.RegisterCommunicationEstablishmentHandler(
+                (_, _) =>
+                {
+                    establishmentCalls++;
+                    return new ValueTask<bool>(true);
+                });
+
+        host.Start();
+        var hostPump = PumpAsync(host, hostServices.TryDispatchAsync, lifetime.Token);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => hostServices.RestoreCommunicationAsync(waiting.Token))
+            .ConfigureAwait(true);
+
+        equipment.Start();
+        var equipmentPump = PumpAsync(
+            equipment,
+            equipmentServices.TryDispatchAsync,
+            lifetime.Token);
+        await Task.WhenAll(
+            host.WaitUntilSelectedAsync(lifetime.Token),
+            equipment.WaitUntilSelectedAsync(lifetime.Token)).ConfigureAwait(true);
+        Assert.Equal(0, establishmentCalls);
+        Assert.Equal(
+            GemCommunicationState.NotCommunicating,
+            hostServices.CommunicationState);
+
+        Assert.Equal(
+            equipmentServices.Identity,
+            await hostServices.RestoreCommunicationAsync(lifetime.Token)
+                .ConfigureAwait(true));
+        Assert.Equal(1, establishmentCalls);
+
+        lifetime.Cancel();
+        await Task.WhenAll(hostPump, equipmentPump).ConfigureAwait(true);
     }
 
     private static async Task AssertCommunicationAndOnlineAsync(
@@ -163,8 +221,69 @@ public sealed class GemFoundationTcpTests
             observed);
         Assert.Equal(
             context.HostServices.Identity,
-            await context.EquipmentServices.EstablishCommunicationAsync(
+            await context.EquipmentServices.RestoreCommunicationAsync(
                 context.Token).ConfigureAwait(true));
+    }
+
+    private static async Task AssertExplicitCommunicationRecoveryAsync(
+        GemTcpContext context)
+    {
+        var acceptEstablishment = false;
+        var establishmentCalls = 0;
+        using var registration =
+            context.EquipmentServices.RegisterCommunicationEstablishmentHandler(
+                (_, cancellationToken) =>
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    establishmentCalls++;
+                    return new ValueTask<bool>(acceptEstablishment);
+                });
+
+        await context.Host.SeparateAsync(context.Token).ConfigureAwait(true);
+        await WaitUntilAsync(
+            () => context.HostServices.CommunicationState ==
+                    GemCommunicationState.NotCommunicating &&
+                context.EquipmentServices.CommunicationState ==
+                    GemCommunicationState.NotCommunicating,
+            context.Token).ConfigureAwait(true);
+        AssertCommunicationReset(context);
+
+        var rejected = await Assert.ThrowsAsync<GemRequestRejectedException>(
+            () => context.HostServices.RestoreCommunicationAsync(
+                context.Token)).ConfigureAwait(true);
+        Assert.Equal(GemOperation.EstablishCommunication, rejected.Operation);
+        Assert.Equal(1, establishmentCalls);
+        AssertCommunicationReset(context);
+
+        acceptEstablishment = true;
+        Assert.Equal(
+            context.EquipmentServices.Identity,
+            await context.HostServices.RestoreCommunicationAsync(
+                context.Token).ConfigureAwait(true));
+        await WaitUntilAsync(
+            () => context.EquipmentServices.CommunicationState ==
+                GemCommunicationState.Communicating,
+            context.Token).ConfigureAwait(true);
+        Assert.Equal(2, establishmentCalls);
+        Assert.Equal(
+            GemCommunicationState.Communicating,
+            context.HostServices.CommunicationState);
+        Assert.Equal(GemOnlineState.Offline, context.HostServices.OnlineState);
+        Assert.Equal(GemOnlineState.Offline, context.EquipmentServices.OnlineState);
+    }
+
+    private static void AssertCommunicationReset(GemTcpContext context)
+    {
+        Assert.Equal(
+            GemCommunicationState.NotCommunicating,
+            context.HostServices.CommunicationState);
+        Assert.Equal(
+            GemCommunicationState.NotCommunicating,
+            context.EquipmentServices.CommunicationState);
+        Assert.Null(context.HostServices.PeerIdentity);
+        Assert.Null(context.EquipmentServices.PeerIdentity);
+        Assert.Equal(GemOnlineState.Offline, context.HostServices.OnlineState);
+        Assert.Equal(GemOnlineState.Offline, context.EquipmentServices.OnlineState);
     }
 
     private static async Task AssertOnlineTransitionPolicyAsync(
