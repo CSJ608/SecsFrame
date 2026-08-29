@@ -18,6 +18,7 @@
 |---|---|
 | `SecsFrame` | SECS-II 数据模型、HSMS-SS 会话与事务基础 |
 | `SecsFrame.Gem` | GEM 通用状态模型与能力服务 |
+| `SecsFrame.Sml` | 动态消息的确定性 SML 调试读写 |
 | `SecsFrame.Smn` | E173 SMN 日志、文档与消息表示 |
 | `SecsFrame.Sedd` | E172 SEDD 设备接口数据字典 |
 
@@ -36,6 +37,9 @@ Deselect、Separate、T6/T7 和 Selected 数据门控。内部数据事务 actor
 Equipment 应用发送策略的 Collection Event、报警目录查询、单报警发送
 启停，以及最小报警通知、Equipment 报警通知发送策略、远程命令运行期精确
 目录/逐项可用性/全局回退和应用状态接受策略。
+独立 <code>SecsFrame.Sml</code> 为相同动态消息模型提供确定性文本写出、
+严格读取、全部 Item 类型往返和显式资源边界；它是非规范性调试 profile，
+不进入线上通讯路径。
 Item 用法与边界见
 [docs/SECS-II-ITEMS.md](docs/SECS-II-ITEMS.md)，消息集成见
 [docs/SECS-MESSAGES.md](docs/SECS-MESSAGES.md)，传输适配边界见
@@ -53,6 +57,8 @@ Host/Equipment 端点见
 [docs/SECS-ENDPOINT-ROLES.md](docs/SECS-ENDPOINT-ROLES.md)，
 独立 GEM 基础行为见
 [docs/GEM-FOUNDATION.md](docs/GEM-FOUNDATION.md)，
+SML 调试文本见
+[docs/SML.md](docs/SML.md)，
 官方 secs4net 跨实现证据见
 [docs/SECS4NET-INTEROP.md](docs/SECS4NET-INTEROP.md)，
 整体路线图见
