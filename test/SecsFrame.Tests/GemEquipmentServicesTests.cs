@@ -379,6 +379,33 @@ public sealed class GemEquipmentServicesTests
     }
 
     [Fact]
+    public async Task Alarm_notification_send_policy_is_exact_disposable_and_replaceable()
+    {
+        await using var endpoint = new SecsEquipment(
+            CreateOptions(GetFreePort(), HsmsConnectionMode.Active));
+        using var services = new GemEquipmentServices(
+            endpoint,
+            new GemIdentity("EQ-01", "1.0"),
+            new TestGemClock(Epoch));
+        GemAlarmNotificationSendPolicyHandler handler = static (_, _, _, _) =>
+            new ValueTask<bool>(true);
+
+        Assert.Throws<ArgumentNullException>(() =>
+            services.RegisterAlarmNotificationSendPolicyHandler(null!));
+        var first =
+            services.RegisterAlarmNotificationSendPolicyHandler(handler);
+        Assert.Throws<InvalidOperationException>(() =>
+            services.RegisterAlarmNotificationSendPolicyHandler(handler));
+        first.Dispose();
+        first.Dispose();
+        using var replacement =
+            services.RegisterAlarmNotificationSendPolicyHandler(handler);
+        services.Dispose();
+        Assert.Throws<ObjectDisposedException>(() =>
+            services.RegisterAlarmNotificationSendPolicyHandler(handler));
+    }
+
+    [Fact]
     public async Task Alarm_registration_is_exact_disposable_and_replaceable()
     {
         await using var endpoint = new SecsEquipment(

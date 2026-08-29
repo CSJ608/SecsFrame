@@ -21,6 +21,8 @@ public sealed class GemEquipmentServices : IDisposable
     private GemOnlineStateTransitionRegistration? _onlineStateTransitionHandler;
     private GemCollectionEventSendPolicyRegistration?
         _collectionEventSendPolicyHandler;
+    private GemAlarmNotificationSendPolicyRegistration?
+        _alarmNotificationSendPolicyHandler;
     private GemRemoteCommandAcceptanceRegistration?
         _remoteCommandAcceptanceHandler;
     private GemRemoteCommandRegistration? _remoteCommandHandler;
@@ -189,6 +191,34 @@ public sealed class GemEquipmentServices : IDisposable
         }
     }
 
+    /// <summary>
+    /// Registers the single application policy evaluated before alarm-notification
+    /// sending.
+    /// </summary>
+    public GemAlarmNotificationSendPolicyRegistration
+        RegisterAlarmNotificationSendPolicyHandler(
+            GemAlarmNotificationSendPolicyHandler handler)
+    {
+        if (handler is null)
+            throw new ArgumentNullException(nameof(handler));
+
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            if (_alarmNotificationSendPolicyHandler is not null)
+            {
+                throw new InvalidOperationException(
+                    "An alarm-notification send-policy handler is already registered.");
+            }
+
+            var registration = new GemAlarmNotificationSendPolicyRegistration(
+                handler,
+                UnregisterAlarmNotificationSendPolicyHandler);
+            _alarmNotificationSendPolicyHandler = registration;
+            return registration;
+        }
+    }
+
     /// <summary>Registers the single application remote-command handler.</summary>
     public GemRemoteCommandRegistration RegisterRemoteCommandHandler(
         GemRemoteCommandHandler handler)
@@ -306,6 +336,9 @@ public sealed class GemEquipmentServices : IDisposable
         if (notification is null)
             throw new ArgumentNullException(nameof(notification));
 
+        GemAlarmNotificationSendPolicyHandler? sendPolicyHandler;
+        GemCommunicationState communicationState;
+        GemOnlineState onlineState;
         lock (_gate)
         {
             ThrowIfDisposed();
@@ -315,6 +348,22 @@ public sealed class GemEquipmentServices : IDisposable
                 throw new InvalidOperationException(
                     $"Alarm sending is disabled for {notification.AlarmId}.");
             }
+
+            sendPolicyHandler = _alarmNotificationSendPolicyHandler?.Handler;
+            communicationState = CommunicationState;
+            onlineState = OnlineState;
+        }
+
+        if (sendPolicyHandler is not null &&
+            !await sendPolicyHandler(
+                communicationState,
+                onlineState,
+                notification,
+                cancellationToken).ConfigureAwait(false))
+        {
+            throw new InvalidOperationException(
+                $"The application policy rejected alarm notification " +
+                $"{notification.AlarmId}.");
         }
 
         var response = await _services.SendRequestAsync(
@@ -353,6 +402,7 @@ public sealed class GemEquipmentServices : IDisposable
             _alarmCatalog.Clear();
             _onlineStateTransitionHandler = null;
             _collectionEventSendPolicyHandler = null;
+            _alarmNotificationSendPolicyHandler = null;
             _remoteCommandAcceptanceHandler = null;
             _remoteCommandHandler = null;
         }
@@ -910,6 +960,16 @@ public sealed class GemEquipmentServices : IDisposable
         {
             if (ReferenceEquals(_collectionEventSendPolicyHandler, registration))
                 _collectionEventSendPolicyHandler = null;
+        }
+    }
+
+    private void UnregisterAlarmNotificationSendPolicyHandler(
+        GemAlarmNotificationSendPolicyRegistration registration)
+    {
+        lock (_gate)
+        {
+            if (ReferenceEquals(_alarmNotificationSendPolicyHandler, registration))
+                _alarmNotificationSendPolicyHandler = null;
         }
     }
 
