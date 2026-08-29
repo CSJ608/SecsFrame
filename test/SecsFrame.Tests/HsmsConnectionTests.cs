@@ -110,6 +110,8 @@ public sealed class HsmsConnectionTests
         Assert.True(observation.TransportSessionId > 0);
         Assert.Equal(HsmsSessionState.Connected, observation.State);
         Assert.Equal(prefix, observation.Snapshot.ToArray());
+        Assert.Equal(prefix.Length, observation.ObservedByteCount);
+        Assert.False(observation.IsTruncated);
     }
 
     private static async Task AssertSelectObservationsAsync(

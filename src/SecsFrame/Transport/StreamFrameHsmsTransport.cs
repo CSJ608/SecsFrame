@@ -10,7 +10,7 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
 {
     private readonly ISessionAwareStreamConnection<HsmsFrame> _connection;
     private readonly Channel<HsmsTransportEvent> _events;
-    private readonly bool _enableT8FaultObservation;
+    private readonly bool _enableTransportFaultObservation;
 #if NET9_0_OR_GREATER
     private readonly Lock _lifecycleGate = new();
     private readonly Lock _sessionGate = new();
@@ -26,10 +26,10 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
 
     internal StreamFrameHsmsTransport(
         ISessionAwareStreamConnection<HsmsFrame> connection,
-        bool enableT8FaultObservation = false)
+        bool enableTransportFaultObservation = false)
     {
         _connection = connection ?? throw new ArgumentNullException(nameof(connection));
-        _enableT8FaultObservation = enableT8FaultObservation;
+        _enableTransportFaultObservation = enableTransportFaultObservation;
         _events = Channel.CreateUnbounded<HsmsTransportEvent>(new UnboundedChannelOptions
         {
             SingleReader = false,
@@ -65,7 +65,7 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
             adaptedOptions);
         return new StreamFrameHsmsTransport(
             connection,
-            hsmsOptions.EnableT8FaultObservation);
+            hsmsOptions.EnableTransportFaultObservation);
     }
 
     public void Start(CancellationToken cancellationToken)
@@ -278,34 +278,64 @@ internal sealed class StreamFrameHsmsTransport : IHsmsTransport
 
     private void OnFrameError(object? sender, FrameErrorEventArgs args)
     {
-        if (args.Kind != FrameErrorKind.IncompleteFrameTimeout)
-            return;
-
-        var sessionValue = Volatile.Read(ref _currentSessionId);
-        if (sessionValue <= 0)
-            return;
-
-        var isCurrentSession = false;
-        lock (_sessionGate)
+        if (!TryMapFrameErrorKind(args.Kind, out var faultKind) ||
+            args.SessionId <= 0)
         {
-            if (_currentSessionId == sessionValue &&
-                _connection.CurrentSessionId == sessionValue &&
-                _sessions.TryGetValue(sessionValue, out var context) &&
-                !context.IsClosed)
+            return;
+        }
+
+        if (faultKind == HsmsTransportFaultKind.IncompleteFrameTimeout)
+        {
+            lock (_sessionGate)
             {
-                isCurrentSession = true;
-                context.CloseReason ??= new HsmsT8TimeoutException(
-                    new HsmsTransportSessionId(sessionValue));
+                if (_sessions.TryGetValue(args.SessionId, out var context) &&
+                    !context.IsClosed)
+                {
+                    context.CloseReason ??= new HsmsT8TimeoutException(
+                        new HsmsTransportSessionId(args.SessionId));
+                }
             }
         }
 
-        if (isCurrentSession && _enableT8FaultObservation)
+        if (!_enableTransportFaultObservation)
+            return;
+
+        var snapshotLength = Math.Min(
+            args.Bytes.Length,
+            HsmsTransportFaultObservation.MaxSnapshotBytes);
+        var isTruncated =
+            args.IsTruncated ||
+            snapshotLength < args.ObservedByteCount;
+        _events.Writer.TryWrite(
+            HsmsTransportEvent.TransportFaultObserved(
+                new HsmsTransportSessionId(args.SessionId),
+                faultKind,
+                args.Bytes.Span[..snapshotLength],
+                args.ObservedByteCount,
+                isTruncated));
+    }
+
+    private static bool TryMapFrameErrorKind(
+        FrameErrorKind kind,
+        out HsmsTransportFaultKind faultKind)
+    {
+        switch (kind)
         {
-            _events.Writer.TryWrite(
-                HsmsTransportEvent.TransportFaultObserved(
-                    new HsmsTransportSessionId(sessionValue),
-                    HsmsTransportFaultKind.IncompleteFrameTimeout,
-                    args.Bytes.Span));
+            case FrameErrorKind.DecodeFailed:
+                faultKind = HsmsTransportFaultKind.DecodeFailed;
+                return true;
+            case FrameErrorKind.DiscardedByResync:
+                faultKind = HsmsTransportFaultKind.DiscardedByResync;
+                return true;
+            case FrameErrorKind.IncompleteFrameOverflow:
+                faultKind = HsmsTransportFaultKind.IncompleteFrameOverflow;
+                return true;
+            case FrameErrorKind.IncompleteFrameTimeout:
+                faultKind = HsmsTransportFaultKind.IncompleteFrameTimeout;
+                return true;
+            default:
+                faultKind = default;
+                return false;
         }
     }
 

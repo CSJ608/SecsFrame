@@ -6,6 +6,11 @@
 
 ### 修复
 
+- 升级官方 StreamFrame 2.6.0，使用 <code>FrameError</code> 自带的来源
+  Session ID 关联四种成帧故障，并保留实际观测字节数与截断状态；迟到旧
+  会话故障不再依赖回调时的当前会话推断。
+- SecsFrame 对四种故障统一只复制最多 8 KiB 前缀，避免重同步丢弃样本形成
+  无界诊断数据，同时保留上游实际字节数供完整性判断。
 - 升级官方 StreamFrame 2.5.0，采用自适应发送编码缓冲，并获得 Passive
   接受循环代次门控，避免显式关闭与自动重连竞速泄漏监听器。
 - 增加真实 TCP Passive 重连竞态测试，连续验证监听恢复、Session ID 单调
@@ -21,14 +26,17 @@
 
 ### 新增
 
-- 增加默认关闭的独立 T8 transport fault 观测流，保留 StreamFrame TCP
-  Session ID、actor 状态与最多 8 KiB 的未完成帧前缀快照。
-- T8 观测队列容量显式可配且满时丢弃最旧项，不阻塞协议 actor；默认路径
+- 增加默认关闭的独立 transport fault 观测流，覆盖 DecodeFailed、
+  DiscardedByResync、IncompleteFrameOverflow 与 IncompleteFrameTimeout，
+  保留 StreamFrame TCP Session ID、actor 状态、实际字节数、截断状态与最多
+  8 KiB 的前缀快照。
+- 故障观测队列容量显式可配且满时丢弃最旧项，不阻塞协议 actor；默认路径
   不创建该通道，旧会话观测不会归入替换会话。
-- 增加独立 <code>SecsFrame-TransportFaultTrace/1</code> 信封，沿用
-  MetadataOnly、RedactedPayload 与 RawPayload 分级，payload codec 默认关闭。
-- 增加真实 TCP T8、Session 过滤、队列容量、黄金向量、脱敏复核、防御性
-  复制和资源限制测试；快照不声明完整 TCP 片段且不能进入重放路径。
+- 将独立信封升级为 <code>SecsFrame-TransportFaultTrace/2</code>，新增实际
+  字节数和 Complete/Truncated 字段，沿用 MetadataOnly、RedactedPayload
+  与 RawPayload 分级；严格 codec 不读取 v1，也不会推断旧记录完整性。
+- 增加四种故障、真实 TCP T8、跨 Session 过滤、8192/8193 字节边界、队列
+  容量、黄金向量、脱敏复核、防御性复制和资源限制测试；快照不进入重放路径。
 - 增加独立 <code>SecsFrame-FaultSampleTrace/1</code> 信封，为公共
   <code>DataMessageDecodeFailed</code> 事件提供已成帧 HSMS data body 样本。
 - 捕获必须显式选择 MetadataOnly、RedactedPayload 或 RawPayload；默认 codec

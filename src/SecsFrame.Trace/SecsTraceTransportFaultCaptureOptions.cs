@@ -2,10 +2,10 @@ using System.Collections.ObjectModel;
 
 namespace SecsFrame.Trace;
 
-/// <summary>Defines the explicit data boundary for one T8 prefix-snapshot capture.</summary>
+/// <summary>Defines the explicit data boundary for one transport-fault capture.</summary>
 public sealed class SecsTraceTransportFaultCaptureOptions
 {
-    /// <summary>The maximum StreamFrame T8 prefix snapshot: 8 KiB.</summary>
+    /// <summary>The maximum retained transport-fault prefix snapshot: 8 KiB.</summary>
     public const int DefaultMaxSnapshotBytes =
         HsmsTransportFaultObservation.MaxSnapshotBytes;
 

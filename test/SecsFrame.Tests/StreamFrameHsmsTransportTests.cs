@@ -175,13 +175,27 @@ public sealed class StreamFrameHsmsTransportTests
         await events.DisposeAsync().ConfigureAwait(true);
     }
 
-    [Fact]
-    public async Task Enabled_native_T8_observation_preserves_session_and_snapshot()
+    [Theory]
+    [InlineData(
+        FrameErrorKind.DecodeFailed,
+        HsmsTransportFaultKind.DecodeFailed)]
+    [InlineData(
+        FrameErrorKind.DiscardedByResync,
+        HsmsTransportFaultKind.DiscardedByResync)]
+    [InlineData(
+        FrameErrorKind.IncompleteFrameOverflow,
+        HsmsTransportFaultKind.IncompleteFrameOverflow)]
+    [InlineData(
+        FrameErrorKind.IncompleteFrameTimeout,
+        HsmsTransportFaultKind.IncompleteFrameTimeout)]
+    public async Task Enabled_native_transport_fault_observation_preserves_metadata(
+        FrameErrorKind nativeKind,
+        HsmsTransportFaultKind expectedKind)
     {
         var connection = new FakeStreamConnection();
         await using var transport = CreateTransport(
             connection,
-            enableT8FaultObservation: true);
+            enableTransportFaultObservation: true);
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         var events = transport.GetEventsAsync(cancellation.Token).GetAsyncEnumerator();
         transport.Start(cancellation.Token);
@@ -190,24 +204,84 @@ public sealed class StreamFrameHsmsTransportTests
         var snapshot = new byte[] { 0x00, 0x00, 0x00, 0x0A, 0x00 };
 
         connection.RaiseFrameError(
-            FrameErrorKind.IncompleteFrameTimeout,
-            snapshot);
+            nativeKind,
+            snapshot,
+            observedByteCount: 9);
         snapshot[0] = 0xFF;
         var fault = await NextAsync(events).ConfigureAwait(true);
-        connection.Reconnect();
-        var closed = await NextAsync(events).ConfigureAwait(true);
 
         Assert.Equal(HsmsTransportEventKind.TransportFaultObserved, fault.Kind);
         Assert.Equal(opened.SessionId, fault.SessionId);
-        Assert.Equal(
-            HsmsTransportFaultKind.IncompleteFrameTimeout,
-            fault.FaultKind);
+        Assert.Equal(expectedKind, fault.FaultKind);
         Assert.Equal(
             new byte[] { 0x00, 0x00, 0x00, 0x0A, 0x00 },
             fault.Snapshot.ToArray());
-        Assert.Equal(HsmsTransportEventKind.SessionClosed, closed.Kind);
-        Assert.Equal(opened.SessionId, closed.SessionId);
-        Assert.IsType<HsmsT8TimeoutException>(closed.Error);
+        Assert.Equal(9, fault.ObservedByteCount);
+        Assert.True(fault.IsTruncated);
+        await events.DisposeAsync().ConfigureAwait(true);
+    }
+
+    [Fact]
+    public async Task Late_native_transport_fault_keeps_its_original_session()
+    {
+        var connection = new FakeStreamConnection();
+        await using var transport = CreateTransport(
+            connection,
+            enableTransportFaultObservation: true);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var events = transport.GetEventsAsync(cancellation.Token).GetAsyncEnumerator();
+        transport.Start(cancellation.Token);
+        connection.RaiseState(ConnectionState.Connected);
+        var originalSession = (await NextAsync(events)).SessionId;
+        connection.RaiseState(ConnectionState.Retry);
+        await NextAsync(events);
+        connection.RaiseState(ConnectionState.Connecting);
+        connection.RaiseState(ConnectionState.Connected);
+        var currentSession = (await NextAsync(events)).SessionId;
+
+        connection.RaiseFrameError(
+            FrameErrorKind.DiscardedByResync,
+            new byte[] { 0xAA },
+            sessionId: originalSession.Value);
+        var fault = await NextAsync(events);
+
+        Assert.True(currentSession.Value > originalSession.Value);
+        Assert.Equal(HsmsTransportEventKind.TransportFaultObserved, fault.Kind);
+        Assert.Equal(originalSession, fault.SessionId);
+        Assert.Equal(HsmsTransportFaultKind.DiscardedByResync, fault.FaultKind);
+        await events.DisposeAsync().ConfigureAwait(true);
+    }
+
+    [Theory]
+    [InlineData(8191, 8191, 8191, false)]
+    [InlineData(8192, 8192, 8192, false)]
+    [InlineData(8193, 8193, 8192, true)]
+    [InlineData(8192, 9004, 8192, true)]
+    public async Task Native_transport_fault_snapshot_is_bounded(
+        int nativeSnapshotLength,
+        long observedByteCount,
+        int retainedSnapshotLength,
+        bool isTruncated)
+    {
+        var connection = new FakeStreamConnection();
+        await using var transport = CreateTransport(
+            connection,
+            enableTransportFaultObservation: true);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var events = transport.GetEventsAsync(cancellation.Token).GetAsyncEnumerator();
+        transport.Start(cancellation.Token);
+        connection.RaiseState(ConnectionState.Connected);
+        await NextAsync(events);
+
+        connection.RaiseFrameError(
+            FrameErrorKind.DiscardedByResync,
+            new byte[nativeSnapshotLength],
+            observedByteCount: observedByteCount);
+        var fault = await NextAsync(events);
+
+        Assert.Equal(retainedSnapshotLength, fault.Snapshot.Length);
+        Assert.Equal(observedByteCount, fault.ObservedByteCount);
+        Assert.Equal(isTruncated, fault.IsTruncated);
         await events.DisposeAsync().ConfigureAwait(true);
     }
 
@@ -537,8 +611,8 @@ public sealed class StreamFrameHsmsTransportTests
 
     private static StreamFrameHsmsTransport CreateTransport(
         FakeStreamConnection connection,
-        bool enableT8FaultObservation = false)
-        => new(connection, enableT8FaultObservation);
+        bool enableTransportFaultObservation = false)
+        => new(connection, enableTransportFaultObservation);
 
     private static StreamFrameHsmsTransport CreateControlledTransport(
         int port,
@@ -884,10 +958,17 @@ public sealed class StreamFrameHsmsTransportTests
 
         public void RaiseFrameError(
             FrameErrorKind kind,
-            ReadOnlyMemory<byte> bytes = default)
+            ReadOnlyMemory<byte> bytes = default,
+            long? sessionId = null,
+            long? observedByteCount = null)
             => FrameError?.Invoke(
                 this,
-                new FrameErrorEventArgs(kind, bytes));
+                new FrameErrorEventArgs(
+                    kind,
+                    bytes,
+                    null,
+                    sessionId ?? CurrentSessionId,
+                    observedByteCount ?? bytes.Length));
 
         public void Emit(long sessionId, HsmsFrame frame)
             => _messages.Writer.TryWrite(new SessionMessage<HsmsFrame>(sessionId, frame));
