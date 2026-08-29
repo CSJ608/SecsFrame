@@ -10,8 +10,8 @@
 
 - [x] 完整 SECS-II Item 类型、嵌套 List 和严格二进制编解码。
 - [x] 动态 SecsMessage、可选单根 Item 与 HSMS Data Message Payload 编解码。
-- [x] 迁移到 StreamFrame 2.5.0 原生会话绑定、写出确认、会话 epoch/监听
-  竞态修复和未完成帧超时。
+- [x] 迁移到 StreamFrame 2.6.0 原生会话绑定、写出确认、会话 epoch/监听
+  竞态修复、未完成帧超时和四类成帧故障来源元数据。
 - [x] Active/Passive 共用状态机的 Select/Select Response、Separate、
   T6/T7、System Bytes 关联和会话失效处理。
 - [x] Linktest、Reject、Deselect 控制消息与对应 T6 分支。
@@ -28,8 +28,9 @@
 
 阶段 1 的工程能力已经形成完整基础链路，StreamFrame #38/#39 的正式包
 迁移与 2.3.1 会话隔离修复已经完成；2.4.0 又收口发布窗口 epoch 并加固
-Passive 监听。当前固定 2.5.0，并增加接受循环代次门控与自适应发送缓冲的
-本地回归证据。后续切片继续扩展 GEM 通用行为。任何
+Passive 监听。当前固定 2.6.0，并增加接受循环代次门控、自适应发送缓冲、
+四类故障原始 Session 和快照完整性元数据的本地回归证据。后续切片继续
+扩展 GEM 通用行为。任何
 标准默认值
 和完整合规结论都依赖团队合法获得的 E37/E37.1 及相关 GEM 标准副本与
 一致性测试。
@@ -114,8 +115,8 @@ E30-0526 材料。下一可执行优先级已转入阶段 3；SML 调试读写�
 - [x] 公共未认领控制消息的受限头元数据 Trace 导出和严格读取。
 - [x] 默认关闭、不含 Body/原始字节的完整控制面头元数据观测。
 - [x] 显式分级、默认不导出 Body 的数据消息解码失败样本。
-- [x] 默认关闭、有界且显式分级的 T8 前缀快照诊断。
-- 其他成帧失败原始片段等运输层互操作诊断扩展。
+- [x] 默认关闭、有界且显式分级的四类运输故障前缀快照诊断。
+- 其他运输层互操作诊断扩展。
 
 当前 Trace 基线不接管连接事件流，也不把原始标识写回线上。时序重放默认
 关闭，并继续经过显式 allowlist 与公共发送 API。诊断快照始终排除
@@ -125,13 +126,12 @@ Body、原始线上字节、transport generation 或时间戳。后续故障原�
 已先覆盖公共事件中忠实保留的完整 data frame：捕获分为 MetadataOnly、
 RedactedPayload 与 RawPayload，payload codec 默认关闭，声明脱敏范围必须
 全为零且可严格复核。它不包含 TCP 长度前缀或分片，也不能进入重放。
-T8 现通过默认关闭的独立流与当前 transport Session ID 关联；队列容量有界、
-满时丢弃最旧项，StreamFrame 提供的最多 8 KiB 前缀再按 MetadataOnly、
+运输故障现通过默认关闭的独立流与 StreamFrame 2.6.0 报告的原始 transport
+Session ID 关联；四种错误都保留实际字节数与截断状态，队列容量有界、满时
+丢弃最旧项。SecsFrame 统一最多保留 8 KiB 前缀，再按 MetadataOnly、
 RedactedPayload 或 RawPayload 捕获，payload codec 默认关闭。该前缀可能含
-四字节长度头，但上游不报告原缓冲总长度或完整性，不能解释为完整 TCP 片段，
-也不能进入重放。其他 DecodeFailed、IncompleteFrameOverflow 与
-DiscardedByResync 仍需要 StreamFrame 在 FrameError 中提供原始 session/epoch
-归属后再扩展，不能用回调时读取当前 Session ID 替代严格关联。
+四字节长度头，不能进入重放；Trace v2 明确记录 Complete/Truncated，并拒绝
+缺少完整性字段的 v1。
 E173 SMN 与 E172 SEDD 仍需先核对授权标准及允许分发的 Schema/表示形式。
 
 ## 发布门槛

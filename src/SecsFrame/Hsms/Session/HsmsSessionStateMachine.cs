@@ -374,7 +374,9 @@ internal sealed class HsmsSessionStateMachine : IAsyncDisposable
                             transportEvent.FaultKind!.Value,
                             transportEvent.SessionId.Value,
                             State,
-                            transportEvent.Snapshot.Span));
+                            transportEvent.Snapshot.Span,
+                            transportEvent.ObservedByteCount,
+                            transportEvent.IsTruncated));
                 }
                 break;
             case HsmsTransportEventKind.SessionClosed:

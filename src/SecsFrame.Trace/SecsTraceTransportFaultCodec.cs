@@ -4,11 +4,11 @@ using System.Text;
 
 namespace SecsFrame.Trace;
 
-/// <summary>Encodes and decodes explicitly classified T8 prefix snapshots.</summary>
+/// <summary>Encodes and decodes explicitly classified transport-fault snapshots.</summary>
 public sealed class SecsTraceTransportFaultCodec
 {
     /// <summary>The exact transport-fault trace format identifier.</summary>
-    public const string FormatIdentifier = "SecsFrame-TransportFaultTrace/1";
+    public const string FormatIdentifier = "SecsFrame-TransportFaultTrace/2";
 
     /// <summary>The default maximum number of records.</summary>
     public const int DefaultMaxRecordCount = SecsTraceCodec.DefaultMaxRecordCount;
@@ -127,6 +127,10 @@ public sealed class SecsTraceTransportFaultCodec
         text.Append(' ');
         text.Append(record.ObservedSnapshotLength.ToString(CultureInfo.InvariantCulture));
         text.Append(' ');
+        text.Append(record.ObservedByteCount.ToString(CultureInfo.InvariantCulture));
+        text.Append(' ');
+        text.Append(record.IsTruncated ? "Truncated" : "Complete");
+        text.Append(' ');
         AppendRanges(text, record.RedactionRanges);
         text.Append(' ');
         AppendSnapshot(text, record.Snapshot);
@@ -209,10 +213,10 @@ public sealed class SecsTraceTransportFaultCodec
         {
             var recordOffset = _index;
             var fields = ReadLine().Split(new[] { ' ' }, StringSplitOptions.None);
-            if (fields.Length != 9 ||
+            if (fields.Length != 11 ||
                 !string.Equals(fields[0], "TransportFault", StringComparison.Ordinal))
             {
-                throw Error("A transport-fault record must contain exactly nine single-space-separated fields", _recordIndex, recordOffset);
+                throw Error("A transport-fault record must contain exactly eleven single-space-separated fields", _recordIndex, recordOffset);
             }
 
             var classification = ParseEnum<SecsTraceFaultSampleDataClassification>(fields[5], "data classification", recordOffset);
@@ -222,17 +226,28 @@ public sealed class SecsTraceTransportFaultCodec
                 throw Error("Payload-bearing transport-fault samples require AllowPayloadRecords to be enabled explicitly", _recordIndex, recordOffset);
             }
 
-            var snapshot = ParseSnapshot(fields[8], recordOffset);
-            var ranges = ParseRanges(fields[7], recordOffset);
+            var snapshot = ParseSnapshot(fields[10], recordOffset);
+            var ranges = ParseRanges(fields[9], recordOffset);
             try
             {
                 return new SecsTraceTransportFaultRecord(
                     ParseTimestamp(fields[1], recordOffset),
                     ParseEnum<HsmsTransportFaultKind>(fields[2], "transport-fault kind", recordOffset),
                     ParseEnum<HsmsSessionState>(fields[3], "session state", recordOffset),
-                    ParseInt64(fields[4], "transport Session ID", recordOffset),
+                    ParsePositiveInt64(
+                        fields[4],
+                        "transport Session ID",
+                        recordOffset),
                     classification,
-                    ParseInt32(fields[6], "observed snapshot length", recordOffset),
+                    ParseNonNegativeInt32(
+                        fields[6],
+                        "observed snapshot length",
+                        recordOffset),
+                    ParseNonNegativeInt64(
+                        fields[7],
+                        "observed byte count",
+                        recordOffset),
+                    ParseTruncation(fields[8], recordOffset),
                     snapshot,
                     ranges);
             }
@@ -270,28 +285,58 @@ public sealed class SecsTraceTransportFaultCodec
             return parsed;
         }
 
-        private int ParseInt32(string value, string fieldName, int offset)
+        private int ParseNonNegativeInt32(
+            string value,
+            string fieldName,
+            int offset)
         {
             if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed) ||
-                parsed <= 0 ||
+                parsed < 0 ||
                 !string.Equals(value, parsed.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal))
             {
-                throw Error($"The {fieldName} must be a canonical positive 32-bit integer", _recordIndex, offset);
+                throw Error($"The {fieldName} must be a canonical nonnegative 32-bit integer", _recordIndex, offset);
             }
 
             return parsed;
         }
 
-        private long ParseInt64(string value, string fieldName, int offset)
+        private long ParseNonNegativeInt64(
+            string value,
+            string fieldName,
+            int offset)
         {
             if (!long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed) ||
-                parsed <= 0 ||
+                parsed < 0 ||
                 !string.Equals(value, parsed.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal))
             {
-                throw Error($"The {fieldName} must be a canonical positive 64-bit integer", _recordIndex, offset);
+                throw Error($"The {fieldName} must be a canonical nonnegative 64-bit integer", _recordIndex, offset);
             }
 
             return parsed;
+        }
+
+        private long ParsePositiveInt64(
+            string value,
+            string fieldName,
+            int offset)
+        {
+            var parsed = ParseNonNegativeInt64(value, fieldName, offset);
+            if (parsed == 0)
+                throw Error($"The {fieldName} must be positive", _recordIndex, offset);
+            return parsed;
+        }
+
+        private bool ParseTruncation(string value, int offset)
+        {
+            if (string.Equals(value, "Complete", StringComparison.Ordinal))
+                return false;
+            if (string.Equals(value, "Truncated", StringComparison.Ordinal))
+                return true;
+
+            throw Error(
+                "The snapshot completeness must be Complete or Truncated",
+                _recordIndex,
+                offset);
         }
 
         private IReadOnlyList<SecsTraceByteRedactionRange> ParseRanges(

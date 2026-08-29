@@ -86,12 +86,13 @@ System Bytes 和远端状态字节仍属于运维元数据，导出文件仍应�
 带 Body 的导入或导出都要再次显式开启。该信封不包含异常、TCP 长度前缀、
 分片、transport Session generation 或 T8 未完成片段。
 
-T8 另有默认关闭的 <code>HsmsTransportFaultObservation</code> 独立流和
-<code>SecsFrame-TransportFaultTrace/1</code> 信封。观测只保留当前 T8 所属
-transport Session ID、actor 状态和 StreamFrame 已复制的最多 8 KiB 前缀；
-队列有界且满时丢弃最旧项。Trace 捕获必须再选择仅元数据、声明范围清零或
-原始快照，默认 codec 仍拒绝带快照的记录。它不包含异常、原缓冲总长度、
-完整性标记或分片时序，也不能用于重放。
+运输成帧错误另有默认关闭的 <code>HsmsTransportFaultObservation</code>
+独立流和 <code>SecsFrame-TransportFaultTrace/2</code> 信封。观测覆盖四种
+<code>FrameErrorKind</code>，保留错误来源 transport Session ID、actor 状态、
+实际观测字节数、截断状态和最多 8 KiB 前缀；队列有界且满时丢弃最旧项。
+Trace 捕获必须再选择仅元数据、声明范围清零或原始快照，默认 codec 仍拒绝
+带快照的记录。它不包含异常或分片时序，也不能用于重放；v1 因缺少完整性
+元数据而由严格 codec 明确拒绝。
 
 ## 标准边界
 

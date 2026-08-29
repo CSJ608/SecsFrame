@@ -8,7 +8,9 @@ internal readonly record struct HsmsTransportEvent
         HsmsFrame? frame,
         Exception? error,
         HsmsTransportFaultKind? faultKind,
-        ReadOnlyMemory<byte> snapshot)
+        ReadOnlyMemory<byte> snapshot,
+        long observedByteCount,
+        bool isTruncated)
     {
         if (!sessionId.IsValid)
             throw new ArgumentOutOfRangeException(nameof(sessionId), sessionId, "The transport session identifier must be positive.");
@@ -23,12 +25,16 @@ internal readonly record struct HsmsTransportEvent
             throw new ArgumentNullException(nameof(faultKind));
         if (!isFault && faultKind is not null)
             throw new ArgumentException("Only a transport-fault event can carry a fault kind.", nameof(faultKind));
-        if (isFault && snapshot.IsEmpty)
-            throw new ArgumentException("A transport-fault event requires a nonempty prefix snapshot.", nameof(snapshot));
         if (!isFault && !snapshot.IsEmpty)
             throw new ArgumentException("Only a transport-fault event can carry a prefix snapshot.", nameof(snapshot));
         if (snapshot.Length > HsmsTransportFaultObservation.MaxSnapshotBytes)
             throw new ArgumentOutOfRangeException(nameof(snapshot), snapshot.Length, "The transport-fault prefix snapshot exceeds the supported limit.");
+        if (isFault && observedByteCount < snapshot.Length)
+            throw new ArgumentOutOfRangeException(nameof(observedByteCount), observedByteCount, "The observed byte count cannot be smaller than the retained snapshot.");
+        if (isFault && isTruncated != (snapshot.Length < observedByteCount))
+            throw new ArgumentException("The truncation flag must equal whether the retained snapshot is shorter than the observed byte count.", nameof(isTruncated));
+        if (!isFault && (observedByteCount != 0 || isTruncated))
+            throw new ArgumentException("Only a transport-fault event can carry snapshot completeness metadata.", nameof(observedByteCount));
 
         Kind = kind;
         SessionId = sessionId;
@@ -36,6 +42,8 @@ internal readonly record struct HsmsTransportEvent
         Error = error;
         FaultKind = faultKind;
         Snapshot = snapshot;
+        ObservedByteCount = observedByteCount;
+        IsTruncated = isTruncated;
     }
 
     public HsmsTransportEventKind Kind { get; }
@@ -50,26 +58,34 @@ internal readonly record struct HsmsTransportEvent
 
     public ReadOnlyMemory<byte> Snapshot { get; }
 
+    public long ObservedByteCount { get; }
+
+    public bool IsTruncated { get; }
+
     public static HsmsTransportEvent SessionOpened(HsmsTransportSessionId sessionId)
-        => new(HsmsTransportEventKind.SessionOpened, sessionId, null, null, null, default);
+        => new(HsmsTransportEventKind.SessionOpened, sessionId, null, null, null, default, 0, false);
 
     public static HsmsTransportEvent FrameReceived(HsmsTransportSessionId sessionId, HsmsFrame frame)
-        => new(HsmsTransportEventKind.FrameReceived, sessionId, frame, null, null, default);
+        => new(HsmsTransportEventKind.FrameReceived, sessionId, frame, null, null, default, 0, false);
 
     public static HsmsTransportEvent TransportFaultObserved(
         HsmsTransportSessionId sessionId,
         HsmsTransportFaultKind faultKind,
-        ReadOnlySpan<byte> snapshot)
+        ReadOnlySpan<byte> snapshot,
+        long observedByteCount,
+        bool isTruncated)
         => new(
             HsmsTransportEventKind.TransportFaultObserved,
             sessionId,
             null,
             null,
             faultKind,
-            snapshot.ToArray());
+            snapshot.ToArray(),
+            observedByteCount,
+            isTruncated);
 
     public static HsmsTransportEvent SessionClosed(
         HsmsTransportSessionId sessionId,
         Exception? error = null)
-        => new(HsmsTransportEventKind.SessionClosed, sessionId, null, error, null, default);
+        => new(HsmsTransportEventKind.SessionClosed, sessionId, null, error, null, default, 0, false);
 }

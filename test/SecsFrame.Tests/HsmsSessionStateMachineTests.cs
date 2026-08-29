@@ -890,14 +890,19 @@ public sealed partial class HsmsSessionStateMachineTests
                 HsmsTransportEvent.FrameReceived(sessionId, frame));
         }
 
-        public void ObserveT8(
+        public void ObserveTransportFault(
             HsmsTransportSessionId sessionId,
-            ReadOnlySpan<byte> snapshot)
+            HsmsTransportFaultKind kind,
+            ReadOnlySpan<byte> snapshot,
+            long? observedByteCount = null,
+            bool? isTruncated = null)
             => _events.Writer.TryWrite(
                 HsmsTransportEvent.TransportFaultObserved(
                     sessionId,
-                    HsmsTransportFaultKind.IncompleteFrameTimeout,
-                    snapshot));
+                    kind,
+                    snapshot,
+                    observedByteCount ?? snapshot.Length,
+                    isTruncated ?? observedByteCount > snapshot.Length));
 
         public void CompleteSend(int index)
         {

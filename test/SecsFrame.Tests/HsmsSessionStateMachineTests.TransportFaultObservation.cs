@@ -3,7 +3,7 @@ namespace SecsFrame.Tests;
 public sealed partial class HsmsSessionStateMachineTests
 {
     [Fact]
-    public async Task Enabled_T8_observation_filters_stale_transport_sessions()
+    public async Task Enabled_transport_fault_observation_filters_stale_sessions()
     {
         var transport = new FakeHsmsTransport();
         await using var machine = CreateMachine(
@@ -30,21 +30,31 @@ public sealed partial class HsmsSessionStateMachineTests
         await WaitUntilAsync(() => machine.State == HsmsSessionState.Connected)
             .ConfigureAwait(true);
 
-        transport.ObserveT8(firstSession, new byte[] { 0x01 });
-        transport.ObserveT8(secondSession, new byte[] { 0x02 });
+        transport.ObserveTransportFault(
+            firstSession,
+            HsmsTransportFaultKind.DecodeFailed,
+            new byte[] { 0x01 });
+        transport.ObserveTransportFault(
+            secondSession,
+            HsmsTransportFaultKind.DiscardedByResync,
+            new byte[] { 0x02 },
+            observedByteCount: 4,
+            isTruncated: true);
         var observation = await NextTransportFaultObservationAsync(observations)
             .ConfigureAwait(true);
 
         Assert.Equal(secondSession.Value, observation.TransportSessionId);
         Assert.Equal(HsmsSessionState.Connected, observation.State);
         Assert.Equal(
-            HsmsTransportFaultKind.IncompleteFrameTimeout,
+            HsmsTransportFaultKind.DiscardedByResync,
             observation.Kind);
         Assert.Equal(new byte[] { 0x02 }, observation.Snapshot.ToArray());
+        Assert.Equal(4, observation.ObservedByteCount);
+        Assert.True(observation.IsTruncated);
     }
 
     [Fact]
-    public async Task T8_observation_queue_drops_oldest_without_blocking_state_machine()
+    public async Task Transport_fault_queue_drops_oldest_without_blocking_state_machine()
     {
         var transport = new FakeHsmsTransport();
         await using var machine = CreateMachine(
@@ -60,9 +70,18 @@ public sealed partial class HsmsSessionStateMachineTests
         await WaitUntilAsync(() => machine.State == HsmsSessionState.Connected)
             .ConfigureAwait(true);
 
-        transport.ObserveT8(sessionId, new byte[] { 0x01 });
-        transport.ObserveT8(sessionId, new byte[] { 0x02 });
-        transport.ObserveT8(sessionId, new byte[] { 0x03 });
+        transport.ObserveTransportFault(
+            sessionId,
+            HsmsTransportFaultKind.IncompleteFrameTimeout,
+            new byte[] { 0x01 });
+        transport.ObserveTransportFault(
+            sessionId,
+            HsmsTransportFaultKind.IncompleteFrameOverflow,
+            new byte[] { 0x02 });
+        transport.ObserveTransportFault(
+            sessionId,
+            HsmsTransportFaultKind.DecodeFailed,
+            new byte[] { 0x03 });
         transport.CloseCurrent();
         await WaitUntilAsync(() => machine.State == HsmsSessionState.Disconnected)
             .ConfigureAwait(true);
@@ -82,7 +101,7 @@ public sealed partial class HsmsSessionStateMachineTests
     }
 
     [Fact]
-    public async Task T8_observation_is_disabled_by_default()
+    public async Task Transport_fault_observation_is_disabled_by_default()
     {
         var transport = new FakeHsmsTransport();
         await using var machine = CreateMachine(
