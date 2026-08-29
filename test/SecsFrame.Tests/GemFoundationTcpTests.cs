@@ -12,6 +12,7 @@ public sealed class GemFoundationTcpTests
         await context.StartAsync().ConfigureAwait(true);
 
         await AssertCommunicationAndOnlineAsync(context).ConfigureAwait(true);
+        await AssertOnlineTransitionPolicyAsync(context).ConfigureAwait(true);
         await AssertDynamicDataAsync(context).ConfigureAwait(true);
         await AssertCollectionEventsAsync(context).ConfigureAwait(true);
         await AssertAlarmCatalogAsync(context).ConfigureAwait(true);
@@ -64,6 +65,61 @@ public sealed class GemFoundationTcpTests
             context.Token).ConfigureAwait(true);
         Assert.Equal(GemOnlineState.Online, context.HostServices.OnlineState);
         Assert.Equal(GemOnlineState.Online, context.EquipmentServices.OnlineState);
+    }
+
+    private static async Task AssertOnlineTransitionPolicyAsync(
+        GemTcpContext context)
+    {
+        var acceptTransitions = false;
+        var observed = new List<(
+            GemOnlineState Current,
+            GemOnlineState Requested)>();
+        using (context.EquipmentServices.RegisterOnlineStateTransitionHandler(
+            (currentState, requestedState, cancellationToken) =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                observed.Add((currentState, requestedState));
+                return new ValueTask<bool>(acceptTransitions);
+            }))
+        {
+            var rejected = await Assert.ThrowsAsync<GemRequestRejectedException>(
+                () => context.HostServices.RequestOfflineAsync(context.Token))
+                .ConfigureAwait(true);
+            Assert.Equal(GemOperation.RequestOffline, rejected.Operation);
+            Assert.Equal((byte)1, rejected.Acknowledgement);
+            Assert.Equal(GemOnlineState.Online, context.HostServices.OnlineState);
+            Assert.Equal(
+                GemOnlineState.Online,
+                context.EquipmentServices.OnlineState);
+
+            acceptTransitions = true;
+            await context.HostServices.RequestOfflineAsync(context.Token)
+                .ConfigureAwait(true);
+            await WaitUntilAsync(
+                () => context.EquipmentServices.OnlineState ==
+                    GemOnlineState.Offline,
+                context.Token).ConfigureAwait(true);
+            Assert.Equal(
+                GemOnlineState.Offline,
+                context.HostServices.OnlineState);
+
+            await context.HostServices.RequestOnlineAsync(context.Token)
+                .ConfigureAwait(true);
+            await WaitUntilAsync(
+                () => context.EquipmentServices.OnlineState ==
+                    GemOnlineState.Online,
+                context.Token).ConfigureAwait(true);
+            Assert.Equal(GemOnlineState.Online, context.HostServices.OnlineState);
+        }
+
+        Assert.Equal(
+            new[]
+            {
+                (GemOnlineState.Online, GemOnlineState.Offline),
+                (GemOnlineState.Online, GemOnlineState.Offline),
+                (GemOnlineState.Offline, GemOnlineState.Online),
+            },
+            observed);
     }
 
     private static async Task AssertDynamicDataAsync(GemTcpContext context)

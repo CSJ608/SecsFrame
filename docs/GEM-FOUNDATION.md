@@ -3,10 +3,10 @@
 ## 模块与范围
 
 <code>SecsFrame.Gem</code> 是只依赖 <code>SecsFrame</code> 的独立程序集。
-当前切片提供 Host/Equipment 两侧的通讯建立、在线/离线、状态变量读取、
-设备常量读取、应用托管时钟、报告定义、事件链接和 Collection Event，
-以及报警目录查询、单报警发送启停、最小报警通知与远程命令链路，不把
-GEM 状态或消息目录放入 HSMS 状态机。
+当前切片提供 Host/Equipment 两侧的通讯建立、在线/离线及应用转换策略、
+状态变量读取、设备常量读取、应用托管时钟、报告定义、事件链接和
+Collection Event，以及报警目录查询、单报警发送启停、最小报警通知与
+远程命令链路，不把 GEM 状态或消息目录放入 HSMS 状态机。
 
 <code>GemHostServices</code> 依赖 <code>SecsHost</code>；
 <code>GemEquipmentServices</code> 依赖 <code>SecsEquipment</code>。服务不拥有
@@ -65,8 +65,21 @@ await foreach (var connectionEvent in equipment.GetEventsAsync(cancellationToken
 非 Selected 的状态事件后，这些状态会重置；因此只分派数据事件会遗漏
 断线重置。
 
-第一切片没有把变量、常量和时钟处理硬性门控在某个 GEM 状态上。这样可在
-尚未获得授权 E30 状态表前避免把未经核对的状态条件固化为公共行为。
+Equipment 可使用 <code>RegisterOnlineStateTransitionHandler</code> 注册
+单一可释放策略。每个结构有效的 Host 在线/离线请求都会把当前状态和目标
+状态交给处理器；返回 <code>false</code> 时 Equipment 发送 profile 的失败
+应答且保持当前状态，Host 抛出包含操作和原始应答字节的
+<code>GemRequestRejectedException</code>，不会更新观察状态。返回
+<code>true</code> 时仍先完整写出成功 Secondary，再更新 Equipment 状态。
+
+没有注册处理器时继续自动接受，保持此前行为。处理器在服务锁外执行；释放
+注册只影响后续请求，已经取得的处理器快照会完成。处理器异常和取消继续
+传播给事件循环，不会被折叠为失败应答。同状态请求也会交给处理器。应用应
+遵守角色端点的单消费者事件循环约束，使状态转换按请求顺序执行。
+
+当前切片仍没有把变量、常量、时钟、报告、报警或命令硬性门控在某个 GEM
+状态上，也不自动重新建立通讯。这样可在尚未获得授权 E30 状态表前避免把
+未经核对的状态条件固化为公共行为。
 
 ## 动态数据与时钟
 
@@ -170,6 +183,8 @@ Host 返回完整结果，不把非零代码折叠成异常，也不解释代码
   ASCII 或 Identity 结构；
 - Secondary 的 Stream、Function 和 W-Bit 与配置完全匹配；
 - 应答是单个 Binary 字节，接受的通讯建立应答包含两项 ASCII Identity；
+- 在线/离线请求必须设置 W-Bit 且 Body 为空；应用拒绝使用 profile 失败
+  应答，接受应答写出完成前不得改变 Equipment 在线状态；
 - 状态变量和设备常量请求只引用已注册标识，提供器不得返回 null；
 - 时钟字符串由显式 codec 完整解析；
 - 报告/链接请求是二元素 List，Collection Event 是三元素 List，各嵌套项
@@ -190,7 +205,7 @@ Host 返回完整结果，不把非零代码折叠成异常，也不解释代码
 
 畸形输入和提供器失败会作为异常返回应用事件循环；语义有效但引用未知变量
 或报告的配置使用失败应答拒绝。本切片尚未实现自动 S9Fx、错误 Secondary、
-通讯建立策略拒绝、状态切换策略、报警历史/批量控制、
+通讯建立策略拒绝、自动重新建立、业务消息状态门控、报警历史/批量控制、
 命令目录/权限/调度或完整 GEM 错误恢复，这些行为不能从当前 API 推断为
 标准合规。
 
@@ -206,7 +221,8 @@ Host 返回完整结果，不把非零代码折叠成异常，也不解释代码
 [STANDARDS.md](STANDARDS.md)。
 
 当前证据包括三目标框架的严格输入测试，以及 Host Active / Equipment
-Passive 真实 TCP 下的双向通讯建立、上下线、异构动态标识、报告定义、
+Passive 真实 TCP 下的双向通讯建立、在线转换接受/拒绝与状态保持、异构
+动态标识、报告定义、
 事件链接、Collection Event 嵌套值与空报告、报警通知接受/拒绝、配置/事件
 拒绝、报警目录全量/选择查询与释放快照、单报警发送启停与未知标识拒绝、
 远程命令动态参数与结果、无处理器拒绝、时钟读写和 Linktest。它们是独立
