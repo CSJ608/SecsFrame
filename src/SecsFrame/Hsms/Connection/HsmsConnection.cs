@@ -24,6 +24,7 @@ public sealed class HsmsConnection : IAsyncDisposable
     private Task? _eventPump;
     private int _state = (int)HsmsSessionState.Disconnected;
     private int _eventReaderClaimed;
+    private int _controlMessageObservationReaderClaimed;
     private int _started;
     private int _disposed;
 
@@ -85,6 +86,33 @@ public sealed class HsmsConnection : IAsyncDisposable
     {
         ThrowIfNotRunning();
         return ReadEventsAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Gets the single-consumer stream of sent and received HSMS control-message
+    /// header metadata.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels only this observation-stream read.</param>
+    /// <remarks>
+    /// This stream is independent from <see cref="GetEventsAsync"/> and is available
+    /// only when <see cref="HsmsConnectionOptions.EnableControlMessageObservation"/>
+    /// is enabled. Sent observations are emitted after the entire control frame is
+    /// written. Received observations are emitted before protocol handling. The
+    /// stream contains no frame body, transport-session generation, raw bytes, or
+    /// timestamp. Only one observation stream can be active at a time.
+    /// </remarks>
+    public IAsyncEnumerable<HsmsControlMessageObservation>
+        GetControlMessageObservationsAsync(
+            CancellationToken cancellationToken = default)
+    {
+        ThrowIfNotRunning();
+        if (!Options.EnableControlMessageObservation)
+        {
+            throw new InvalidOperationException(
+                "HSMS control-message observation is not enabled in the connection options.");
+        }
+
+        return ReadControlMessageObservationsAsync(cancellationToken);
     }
 
     /// <summary>Waits until this connection next reaches Selected state.</summary>
@@ -203,7 +231,8 @@ public sealed class HsmsConnection : IAsyncDisposable
             new HsmsSessionOptions(
                 options.ConnectionMode,
                 options.T6,
-                options.T7));
+                options.T7,
+                options.EnableControlMessageObservation));
         return new HsmsDataTransactionManager(
             session,
             new HsmsDataTransactionOptions(options.T3));
@@ -302,6 +331,35 @@ public sealed class HsmsConnection : IAsyncDisposable
         finally
         {
             Interlocked.Exchange(ref _eventReaderClaimed, 0);
+        }
+    }
+
+    private async IAsyncEnumerable<HsmsControlMessageObservation>
+        ReadControlMessageObservationsAsync(
+            [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        if (Interlocked.Exchange(
+            ref _controlMessageObservationReaderClaimed,
+            1) != 0)
+        {
+            throw new InvalidOperationException(
+                "The HSMS control-message observation stream already has a consumer.");
+        }
+
+        try
+        {
+            await foreach (var observation in _transactions
+                .GetControlMessageObservationsAsync(cancellationToken)
+                .ConfigureAwait(false))
+            {
+                yield return observation;
+            }
+        }
+        finally
+        {
+            Interlocked.Exchange(
+                ref _controlMessageObservationReaderClaimed,
+                0);
         }
     }
 

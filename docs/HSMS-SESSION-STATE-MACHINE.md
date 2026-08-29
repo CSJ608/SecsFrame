@@ -20,7 +20,9 @@
 - 本地和远端 Separate 都终止当前协议会话；
 - 只有 Selected 状态的数据消息才向上游事件流转发；
 - 本地数据发送同样进入 actor 做 Selected 与当前 Session ID 校验，任务
-  在 <code>IHsmsTransport</code> 确认完整写出后完成。
+  在 <code>IHsmsTransport</code> 确认完整写出后完成；
+- 可显式启用独立控制消息元数据观测：入站在协议处理前记录，出站在完整
+  写出确认后记录，默认关闭且不影响协议事件。
 
 连接主动/被动模式不表示 Host/Equipment 业务角色。状态机没有
 Host/Equipment 分支，后续角色 API 可以独立组合。
@@ -70,6 +72,7 @@ System Bytes。旧会话的帧、发送完成和计时器回调不会推进替�
 - Selected 前拒绝数据、Selected 后转发数据；
 - Linktest/Deselect 的写出确认、T6、响应匹配、拒绝和并发互斥；
 - Reject 黄金向量、四类生成路径、未消费 Reject 转发；
+- 完整 Select/Linktest 收发观测顺序和未知 SType 到 Reject 的头字段保留；
 - 非法控制头、本地及远端 Separate；
 - Selected 数据发送门控、完整写出确认、会话关闭和替换会话不重放。
 

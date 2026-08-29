@@ -14,7 +14,8 @@ StreamFrame 运输适配、HSMS-SS 会话 actor 和数据事务 actor，调用�
 - W-Bit Primary 的 T3 关联与 Secondary 返回；
 - 接收入站 Primary 或未匹配消息，并使用不可伪造令牌回复一次；
 - Linktest、Deselect 和 Separate 控制命令；
-- 状态、数据、未消费控制消息和解码失败的单消费者异步事件流。
+- 状态、数据、未消费控制消息和解码失败的单消费者异步事件流；
+- 默认关闭、与业务事件独立的完整控制消息头元数据观测流。
 
 Host/Equipment 是后续业务能力角色，不由 Active/Passive 推断。
 需要按运行期 Stream/Function 处理 Primary 时，可在本事件流上组合
@@ -35,6 +36,7 @@ Host/Equipment 是后续业务能力角色，不由 Active/Passive 推断。
 | T6 | Select、Linktest、Deselect 控制响应等待 |
 | T7 | TCP 建立后等待进入 Selected |
 | T8 | 未完成消息接收进展等待 |
+| EnableControlMessageObservation | 是否创建完整控制消息元数据观测流；默认 false |
 
 仓库没有内置或暗示标准默认值。T5 必须能无损转换成 StreamFrame 使用的
 整毫秒范围；Passive 监听重试不被解释成 T5。每个取值应依据团队合法获得
@@ -52,7 +54,8 @@ var options = new HsmsConnectionOptions(
     t5: TimeSpan.FromSeconds(10),
     t6: TimeSpan.FromSeconds(5),
     t7: TimeSpan.FromSeconds(10),
-    t8: TimeSpan.FromSeconds(5));
+    t8: TimeSpan.FromSeconds(5),
+    enableControlMessageObservation: true);
 
 await using var connection = new HsmsConnection(options);
 connection.Start();
@@ -89,6 +92,33 @@ var secondary = await connection.SendAsync(
 不包含已被内部 Select、Linktest、Deselect 或数据事务认领的控制消息，
 因此快照不是完整控制面抓包。格式与安全边界见 [TRACE.md](TRACE.md)。
 
+完整控制面诊断必须在构造连接时显式设置
+<code>EnableControlMessageObservation</code>，并由应用持续消费独立流：
+
+~~~csharp
+await foreach (var observation in connection
+    .GetControlMessageObservationsAsync(cancellationToken))
+{
+    var record = SecsTraceControlRecord.Create(
+        DateTimeOffset.UtcNow,
+        observation);
+}
+~~~
+
+该流与 <code>GetEventsAsync</code> 各自只有一个活动消费者，取消或释放旧
+枚举器后可重新获取，二者互不争抢。入站控制头在会话 actor 执行协议处理和
+状态转换前发布；出站控制头只在整帧写入成功后发布，因此 Select Request
+通常观察为 Selecting，Passive 的成功 Select Response 仍观察为 Connected。
+极快响应可能先于本地发送完成回调进入 actor，跨方向记录顺序和出站状态应
+解释为 actor 实际处理顺序，而不是线上字节的精确时间顺序。
+启用后通道会缓存尚未消费的记录，应用必须持续读取；默认关闭时不创建通道，
+调用观测 API 会失败。
+
+<code>HsmsControlMessageObservation</code> 只包含本地方向、观察状态和原
+十字节 <code>HsmsMessageHeader</code>。它不含 Body、原始 TCP/帧字节、
+transport Session generation 或时间戳，也不改变未认领
+<code>ControlMessageReceived</code> 业务事件的既有行为。
+
 带错误的状态事件和解码失败事件还会提供可选
 <code>HsmsDiagnostic</code>，用于按稳定代码、层级、操作与计时器处理，
 无需解析异常消息。调用任务抛出的异常可通过
@@ -117,4 +147,5 @@ var secondary = await connection.SendAsync(
 
 真实 TCP 测试使用两个公共连接完成 Select、Linktest、嵌套 Item
 Primary/Secondary、重复回复拒绝和取消后保持 Selected。它证明当前实现
-各层能够组合工作，不替代 SEMI 一致性认证或第三方设备互操作。
+各层能够组合工作；另有完整控制观测测试核对双方 Select/Linktest 的方向、
+状态和头字段相等。它们不替代 SEMI 一致性认证或第三方设备互操作。

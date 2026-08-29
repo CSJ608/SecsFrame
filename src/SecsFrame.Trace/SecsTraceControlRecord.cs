@@ -90,6 +90,36 @@ public sealed class SecsTraceControlRecord
             header.SystemBytes);
     }
 
+    /// <summary>Creates a metadata record from a full control-message observation.</summary>
+    public static SecsTraceControlRecord Create(
+        DateTimeOffset timestamp,
+        HsmsControlMessageObservation observation)
+    {
+        if (observation is null)
+            throw new ArgumentNullException(nameof(observation));
+
+        var direction = observation.Direction switch
+        {
+            HsmsControlMessageDirection.Sent => SecsTraceDirection.Sent,
+            HsmsControlMessageDirection.Received => SecsTraceDirection.Received,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(observation),
+                observation.Direction,
+                "Unknown control-message direction."),
+        };
+        var header = observation.Header;
+        return new SecsTraceControlRecord(
+            timestamp,
+            direction,
+            observation.State,
+            header.SessionId,
+            header.HeaderByte2,
+            header.HeaderByte3,
+            header.PresentationType,
+            (byte)header.MessageType,
+            header.SystemBytes);
+    }
+
     /// <summary>
     /// Creates a received metadata record from an unclaimed public control event.
     /// </summary>

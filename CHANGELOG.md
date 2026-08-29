@@ -21,6 +21,13 @@
 
 ### 新增
 
+- 增加默认关闭的完整 HSMS 控制消息元数据观测流，覆盖内部 Select、
+  Linktest、Deselect、Reject 与 Separate 的收发，而不改变现有业务事件流。
+- 观测只保留方向、actor 观察状态与原十字节头；入站在协议处理前发布，
+  出站仅在整帧写出确认后发布，并可直接创建控制 Trace 记录。
+- 增加状态机顺序、未知 SType/Reject、消费者替换和 Active/Passive 真实
+  TCP Select/Linktest 测试；原始字节、Body、transport generation 与时间戳
+  仍不进入观测模型。
 - 增加独立 <code>SecsFrame-ControlTrace/1</code> 信封，对公共未认领控制
   事件提供不含 Body 的十字节头元数据导出与严格读取。
 - 控制记录保留方向、观察状态和原始头字段，允许未知非零 SType 往返；增加
