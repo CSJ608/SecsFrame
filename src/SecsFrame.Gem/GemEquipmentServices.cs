@@ -19,6 +19,8 @@ public sealed class GemEquipmentServices : IDisposable
     private readonly Dictionary<SecsItem, GemAlarmRegistration> _alarms = new();
     private readonly List<GemAlarmRegistration> _alarmCatalog = new();
     private GemOnlineStateTransitionRegistration? _onlineStateTransitionHandler;
+    private GemRemoteCommandAcceptanceRegistration?
+        _remoteCommandAcceptanceHandler;
     private GemRemoteCommandRegistration? _remoteCommandHandler;
     private int _disposed;
 
@@ -125,6 +127,34 @@ public sealed class GemEquipmentServices : IDisposable
                 handler,
                 UnregisterOnlineStateTransitionHandler);
             _onlineStateTransitionHandler = registration;
+            return registration;
+        }
+    }
+
+    /// <summary>
+    /// Registers the single application policy evaluated before remote-command
+    /// execution.
+    /// </summary>
+    public GemRemoteCommandAcceptanceRegistration
+        RegisterRemoteCommandAcceptanceHandler(
+            GemRemoteCommandAcceptanceHandler handler)
+    {
+        if (handler is null)
+            throw new ArgumentNullException(nameof(handler));
+
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            if (_remoteCommandAcceptanceHandler is not null)
+            {
+                throw new InvalidOperationException(
+                    "A remote-command acceptance handler is already registered.");
+            }
+
+            var registration = new GemRemoteCommandAcceptanceRegistration(
+                handler,
+                UnregisterRemoteCommandAcceptanceHandler);
+            _remoteCommandAcceptanceHandler = registration;
             return registration;
         }
     }
@@ -276,6 +306,7 @@ public sealed class GemEquipmentServices : IDisposable
             _alarms.Clear();
             _alarmCatalog.Clear();
             _onlineStateTransitionHandler = null;
+            _remoteCommandAcceptanceHandler = null;
             _remoteCommandHandler = null;
         }
         _services.Dispose();
@@ -468,17 +499,38 @@ public sealed class GemEquipmentServices : IDisposable
         GemMessageCodec.RequireReplyExpected(context, "remote-command request");
         var command = GemMessageCodec.DecodeRemoteCommand(
             context.Message.RootItem);
+        GemRemoteCommandAcceptanceHandler? acceptanceHandler;
         GemRemoteCommandHandler? handler;
+        GemCommunicationState communicationState;
+        GemOnlineState onlineState;
         lock (_gate)
+        {
+            acceptanceHandler = _remoteCommandAcceptanceHandler?.Handler;
             handler = _remoteCommandHandler?.Handler;
+            communicationState = CommunicationState;
+            onlineState = OnlineState;
+        }
 
-        var result = handler is null
-            ? new GemRemoteCommandResult(
+        GemRemoteCommandResult result;
+        if (handler is null ||
+            (acceptanceHandler is not null &&
+                !await acceptanceHandler(
+                    communicationState,
+                    onlineState,
+                    command,
+                    cancellationToken).ConfigureAwait(false)))
+        {
+            result = new GemRemoteCommandResult(
                 Profile.FailedAcknowledgement,
-                Array.Empty<GemRemoteCommandParameterResult>())
-            : await handler(command, cancellationToken).ConfigureAwait(false) ??
+                Array.Empty<GemRemoteCommandParameterResult>());
+        }
+        else
+        {
+            result = await handler(command, cancellationToken).ConfigureAwait(false) ??
                 throw new GemProtocolException(
                     "The remote-command handler returned null.");
+        }
+
         return GemEndpointServices.CreateSecondary(
             Profile.RemoteCommand,
             GemMessageCodec.EncodeRemoteCommandResult(result));
@@ -780,6 +832,20 @@ public sealed class GemEquipmentServices : IDisposable
         {
             if (ReferenceEquals(_remoteCommandHandler, registration))
                 _remoteCommandHandler = null;
+        }
+    }
+
+    private void UnregisterRemoteCommandAcceptanceHandler(
+        GemRemoteCommandAcceptanceRegistration registration)
+    {
+        lock (_gate)
+        {
+            if (ReferenceEquals(
+                _remoteCommandAcceptanceHandler,
+                registration))
+            {
+                _remoteCommandAcceptanceHandler = null;
+            }
         }
     }
 

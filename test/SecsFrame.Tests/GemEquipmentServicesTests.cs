@@ -326,6 +326,33 @@ public sealed class GemEquipmentServicesTests
     }
 
     [Fact]
+    public async Task Remote_command_acceptance_handler_is_exact_disposable_and_replaceable()
+    {
+        await using var endpoint = new SecsEquipment(
+            CreateOptions(GetFreePort(), HsmsConnectionMode.Active));
+        using var services = new GemEquipmentServices(
+            endpoint,
+            new GemIdentity("EQ-01", "1.0"),
+            new TestGemClock(Epoch));
+        GemRemoteCommandAcceptanceHandler handler = static (_, _, _, _) =>
+            new ValueTask<bool>(true);
+
+        Assert.Throws<ArgumentNullException>(() =>
+            services.RegisterRemoteCommandAcceptanceHandler(null!));
+        var first =
+            services.RegisterRemoteCommandAcceptanceHandler(handler);
+        Assert.Throws<InvalidOperationException>(() =>
+            services.RegisterRemoteCommandAcceptanceHandler(handler));
+        first.Dispose();
+        first.Dispose();
+        using var replacement =
+            services.RegisterRemoteCommandAcceptanceHandler(handler);
+        services.Dispose();
+        Assert.Throws<ObjectDisposedException>(() =>
+            services.RegisterRemoteCommandAcceptanceHandler(handler));
+    }
+
+    [Fact]
     public async Task Alarm_registration_is_exact_disposable_and_replaceable()
     {
         await using var endpoint = new SecsEquipment(

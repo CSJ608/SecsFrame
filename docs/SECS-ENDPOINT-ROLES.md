@@ -67,6 +67,7 @@ await equipment.WaitUntilSelectedAsync(cancellationToken);
 报警目录查询支持运行期注册，Host 也可启停单个已注册报警的通知发送。
 Host 与 Equipment 的 GEM 服务都可注册单一通讯建立策略；拒绝保留双方
 既有通讯状态和对端身份，应用可在同一 Selected 会话显式重试。自动重新
-建立、业务消息状态门控、报警历史/批量控制、命令目录/权限/调度仍未实现。
-相关行为、事件循环要求和未核对边界见
+建立仍未实现。Equipment 入站远程命令可注册默认关闭的应用状态接受策略；
+Collection Event、报警通知等其他业务消息状态门控，以及报警历史/批量
+控制、命令目录/权限/调度仍未实现。相关行为、事件循环要求和未核对边界见
 [GEM-FOUNDATION.md](GEM-FOUNDATION.md)，项目不声明 GEM 合规。
