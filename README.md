@@ -75,7 +75,8 @@ Trace 工具边界见
 官方 secs4net 跨实现证据见
 [docs/SECS4NET-INTEROP.md](docs/SECS4NET-INTEROP.md)，
 整体路线图见
-[docs/ROADMAP.md](docs/ROADMAP.md)。
+[docs/ROADMAP.md](docs/ROADMAP.md)，当前开发队列与外部阻塞见
+[docs/DEVELOPMENT-STATUS.md](docs/DEVELOPMENT-STATUS.md)。
 
 ## 动态 Item
 
