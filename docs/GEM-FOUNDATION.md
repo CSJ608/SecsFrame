@@ -5,9 +5,9 @@
 <code>SecsFrame.Gem</code> 是只依赖 <code>SecsFrame</code> 的独立程序集。
 当前切片提供 Host/Equipment 两侧的通讯建立及应用接受策略、在线/离线及
 应用转换策略、状态变量读取、设备常量读取、应用托管时钟、报告定义、事件
-链接和 Collection Event，以及报警目录查询、单报警发送启停、最小报警
-通知、远程命令链路与应用状态接受策略，不把 GEM 状态或消息目录放入 HSMS
-状态机。
+链接和带应用发送策略的 Collection Event，以及报警目录查询、单报警发送
+启停、最小报警通知、远程命令链路与应用状态接受策略，不把 GEM 状态或消息
+目录放入 HSMS 状态机。
 
 <code>GemHostServices</code> 依赖 <code>SecsHost</code>；
 <code>GemEquipmentServices</code> 依赖 <code>SecsEquipment</code>。服务不拥有
@@ -94,9 +94,10 @@ Equipment 可使用 <code>RegisterOnlineStateTransitionHandler</code> 注册
 应用应遵守角色端点的单消费者事件循环约束，使决策和状态转换按请求顺序
 执行。
 
-当前切片仍没有把变量、常量、时钟、报告、报警或命令硬性门控在某个 GEM
-状态上，也不自动重新建立通讯。这样可在尚未获得授权 E30 状态表前避免把
-未经核对的状态条件固化为公共行为。
+除前述通讯建立/在线转换策略外，后文还为远程命令和 Collection Event
+提供显式应用策略。当前仍不把变量读取、常量、时钟、报警通知等其他操作
+硬性门控在某个 GEM 状态上，也不自动重新建立通讯。这样可在尚未获得授权
+E30 状态表前避免把未经核对的状态条件固化为公共行为。
 
 ## 动态数据与时钟
 
@@ -129,6 +130,20 @@ Host 使用 <code>DefineReportsAsync</code> 和
 状态变量提供器，再在锁外按链接/定义顺序异步采值。并发替换配置或释放
 注册不会改变正在生成的这一条事件；提供器仍可能按应用取消或失败。值保持
 任意动态 Item，包括嵌套 List 和空报告。
+
+Equipment 可另用 <code>RegisterCollectionEventSendPolicyHandler</code>
+注册单一可释放发送策略。配置有效的每次发送会把当前
+<code>CommunicationState</code>、<code>OnlineState</code>、DATAID 和
+CEID 交给策略。返回 <code>false</code> 时
+<code>SendCollectionEventAsync</code> 抛出本地
+<code>InvalidOperationException</code>；状态变量提供器不会执行，也不会
+创建 S6F11 事务，因此 Host 不会收到消息。
+
+没有注册策略时继续采值并发送，保持此前行为。策略、状态和报告执行计划在
+Equipment 锁内一起快照，策略在锁外执行；释放注册只影响后续发送，已取得
+的快照会完成。策略异常和取消直接传播给调用方。应用可以改变策略结果并在
+同一 Selected 会话再次显式调用发送；库不自动重试，也不内置未经授权
+E30-0526 核对的通讯/在线状态矩阵。
 
 Host 使用 <code>RegisterCollectionEventHandler</code> 注册单一可释放处理器。
 处理器返回 <code>true</code> 发送成功应答，返回 <code>false</code> 发送失败
@@ -255,7 +270,8 @@ Schema、权限、排队、自动重试、幂等策略或执行历史。
 Passive 真实 TCP 下的双向通讯建立、首次建立拒绝后同会话恢复、已通讯
 重新建立拒绝时的状态/身份保持与恢复、在线转换接受/拒绝与状态保持、异构
 动态标识、报告定义、
-事件链接、Collection Event 嵌套值与空报告、报警通知接受/拒绝、配置/事件
-拒绝、报警目录全量/选择查询与释放快照、单报警发送启停与未知标识拒绝、
-远程命令动态参数与结果、无处理器拒绝、应用状态拒绝短路与同会话重试、
-时钟读写和 Linktest。它们是独立工程验证，不是 SEMI 一致性认证。
+事件链接、Collection Event 嵌套值与空报告、应用发送策略拒绝零采值/零
+事务和同会话重试、报警通知接受/拒绝、配置/事件拒绝、报警目录全量/选择
+查询与释放快照、单报警发送启停与未知标识拒绝、远程命令动态参数与结果、
+无处理器拒绝、应用状态拒绝短路与同会话重试、时钟读写和 Linktest。它们
+是独立工程验证，不是 SEMI 一致性认证。

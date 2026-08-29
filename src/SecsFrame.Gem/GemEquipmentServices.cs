@@ -19,6 +19,8 @@ public sealed class GemEquipmentServices : IDisposable
     private readonly Dictionary<SecsItem, GemAlarmRegistration> _alarms = new();
     private readonly List<GemAlarmRegistration> _alarmCatalog = new();
     private GemOnlineStateTransitionRegistration? _onlineStateTransitionHandler;
+    private GemCollectionEventSendPolicyRegistration?
+        _collectionEventSendPolicyHandler;
     private GemRemoteCommandAcceptanceRegistration?
         _remoteCommandAcceptanceHandler;
     private GemRemoteCommandRegistration? _remoteCommandHandler;
@@ -159,6 +161,34 @@ public sealed class GemEquipmentServices : IDisposable
         }
     }
 
+    /// <summary>
+    /// Registers the single application policy evaluated before Collection Event
+    /// value collection and sending.
+    /// </summary>
+    public GemCollectionEventSendPolicyRegistration
+        RegisterCollectionEventSendPolicyHandler(
+            GemCollectionEventSendPolicyHandler handler)
+    {
+        if (handler is null)
+            throw new ArgumentNullException(nameof(handler));
+
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            if (_collectionEventSendPolicyHandler is not null)
+            {
+                throw new InvalidOperationException(
+                    "A Collection Event send-policy handler is already registered.");
+            }
+
+            var registration = new GemCollectionEventSendPolicyRegistration(
+                handler,
+                UnregisterCollectionEventSendPolicyHandler);
+            _collectionEventSendPolicyHandler = registration;
+            return registration;
+        }
+    }
+
     /// <summary>Registers the single application remote-command handler.</summary>
     public GemRemoteCommandRegistration RegisterRemoteCommandHandler(
         GemRemoteCommandHandler handler)
@@ -218,7 +248,23 @@ public sealed class GemEquipmentServices : IDisposable
         if (eventId is null)
             throw new ArgumentNullException(nameof(eventId));
 
-        var executions = GetReportExecutions(eventId);
+        var executions = GetReportExecutions(
+            eventId,
+            out var sendPolicyHandler,
+            out var communicationState,
+            out var onlineState);
+        if (sendPolicyHandler is not null &&
+            !await sendPolicyHandler(
+                communicationState,
+                onlineState,
+                dataId,
+                eventId,
+                cancellationToken).ConfigureAwait(false))
+        {
+            throw new InvalidOperationException(
+                $"The application policy rejected Collection Event {eventId}.");
+        }
+
         var reports = new GemCollectedReport[executions.Count];
         for (var reportIndex = 0; reportIndex < executions.Count; reportIndex++)
         {
@@ -306,6 +352,7 @@ public sealed class GemEquipmentServices : IDisposable
             _alarms.Clear();
             _alarmCatalog.Clear();
             _onlineStateTransitionHandler = null;
+            _collectionEventSendPolicyHandler = null;
             _remoteCommandAcceptanceHandler = null;
             _remoteCommandHandler = null;
         }
@@ -775,7 +822,11 @@ public sealed class GemEquipmentServices : IDisposable
         }
     }
 
-    private IReadOnlyList<ReportExecution> GetReportExecutions(SecsItem eventId)
+    private IReadOnlyList<ReportExecution> GetReportExecutions(
+        SecsItem eventId,
+        out GemCollectionEventSendPolicyHandler? sendPolicyHandler,
+        out GemCommunicationState communicationState,
+        out GemOnlineState onlineState)
     {
         lock (_gate)
         {
@@ -815,6 +866,9 @@ public sealed class GemEquipmentServices : IDisposable
                     Array.AsReadOnly(providers));
             }
 
+            sendPolicyHandler = _collectionEventSendPolicyHandler?.Handler;
+            communicationState = CommunicationState;
+            onlineState = OnlineState;
             return Array.AsReadOnly(executions);
         }
     }
@@ -846,6 +900,16 @@ public sealed class GemEquipmentServices : IDisposable
             {
                 _remoteCommandAcceptanceHandler = null;
             }
+        }
+    }
+
+    private void UnregisterCollectionEventSendPolicyHandler(
+        GemCollectionEventSendPolicyRegistration registration)
+    {
+        lock (_gate)
+        {
+            if (ReferenceEquals(_collectionEventSendPolicyHandler, registration))
+                _collectionEventSendPolicyHandler = null;
         }
     }
 
