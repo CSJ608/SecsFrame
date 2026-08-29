@@ -26,6 +26,9 @@
 
 ### 新增
 
+- 增加真实 TCP Active/Passive 重复会话抖动故障注入测试；固定三轮断开与
+  重选并复用相同 System Bytes，验证待处理事务确定中断、旧回复与强制迟到
+  T3 回调不污染替换会话，且新事务可成功完成。
 - 增加默认关闭的独立 transport fault 观测流，覆盖 DecodeFailed、
   DiscardedByResync、IncompleteFrameOverflow 与 IncompleteFrameTimeout，
   保留 StreamFrame TCP Session ID、actor 状态、实际字节数、截断状态与最多

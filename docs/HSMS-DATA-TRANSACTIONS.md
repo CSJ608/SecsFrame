@@ -80,7 +80,10 @@ transport session 的信封不能在新连接上回复。
 嵌套 Item 往返、并发独立计时器、重复 System Bytes 避让、复合键匹配、
 Reject、Deselect、断线、取消、迟到消息、畸形 Secondary 和一次性回复。
 Active/Passive 双端真实 TCP 回环另行覆盖 Select 后的 Primary/Secondary
-完整往返。
+完整往返，以及同一端点生命周期内固定三次断开、重选和事务恢复。抖动测试
+在新旧会话复用相同 System Bytes，显式投递已释放的旧 T3 回调并尝试旧
+会话回复，验证待处理事务确定中断且替换会话仍可完成本代事务。同步只使用
+状态事件、计时器武装信号和事务任务，并由统一取消令牌严格封顶。
 
 这些测试是自主构造的工程向量，不是 SEMI 一致性测试。
 
