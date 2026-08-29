@@ -26,7 +26,8 @@ solution 以便普通构建持续检查，但不是测试项目，因此
 - 每周三 UTC 02:43 定时运行 15 分钟；
 - 手动选择 1、5、15 或 20 分钟；
 - 手动指定正 32 位 seed，<code>0</code> 从 GitHub Run ID 确定性派生；
-- 程序最长 20 分钟、单周期最长 20 秒、作业最长 25 分钟；
+- 程序最长 20 分钟、单周期最长 20 秒、作业最长 25 分钟，并以 100000
+  个周期作为 duration 之外的次级上限；
 - 同一时间只运行一个 soak 作业，后续触发排队而不取消已有运行。
 
 普通 PR/push CI 不触发该工作流。它仍会通过 solution 的 Release 构建检查
@@ -40,7 +41,7 @@ dotnet run --project test/SecsFrame.Soak/SecsFrame.Soak.csproj \
   -c Release --no-build -- \
   --seed 12345 \
   --duration-seconds 300 \
-  --max-cycles 10000 \
+  --max-cycles 100000 \
   --output artifacts/soak/session-soak.jsonl
 ~~~
 
