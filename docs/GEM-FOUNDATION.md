@@ -3,10 +3,10 @@
 ## 模块与范围
 
 <code>SecsFrame.Gem</code> 是只依赖 <code>SecsFrame</code> 的独立程序集。
-当前切片提供 Host/Equipment 两侧的通讯建立、在线/离线及应用转换策略、
-状态变量读取、设备常量读取、应用托管时钟、报告定义、事件链接和
-Collection Event，以及报警目录查询、单报警发送启停、最小报警通知与
-远程命令链路，不把 GEM 状态或消息目录放入 HSMS 状态机。
+当前切片提供 Host/Equipment 两侧的通讯建立及应用接受策略、在线/离线及
+应用转换策略、状态变量读取、设备常量读取、应用托管时钟、报告定义、事件
+链接和 Collection Event，以及报警目录查询、单报警发送启停、最小报警
+通知与远程命令链路，不把 GEM 状态或消息目录放入 HSMS 状态机。
 
 <code>GemHostServices</code> 依赖 <code>SecsHost</code>；
 <code>GemEquipmentServices</code> 依赖 <code>SecsEquipment</code>。服务不拥有
@@ -65,6 +65,21 @@ await foreach (var connectionEvent in equipment.GetEventsAsync(cancellationToken
 非 Selected 的状态事件后，这些状态会重置；因此只分派数据事件会遗漏
 断线重置。
 
+Host 与 Equipment 都可使用
+<code>RegisterCommunicationEstablishmentHandler</code> 注册单一可释放
+策略。每个结构有效的对端通讯建立请求都会把请求方
+<code>GemIdentity</code> 交给处理器。返回 <code>false</code> 时服务发送
+profile 的失败应答和空身份 List，发起方抛出包含操作和原始应答字节的
+<code>GemRequestRejectedException</code>。双方均不更新
+<code>CommunicationState</code> 或 <code>PeerIdentity</code>；如果请求是
+已通讯状态下的重新建立，既有状态和身份也会保留。
+
+返回 <code>true</code> 时服务先完整写出成功 Secondary，再记录请求方身份
+并进入 <code>Communicating</code>。没有注册策略时继续自动接受，保持此前
+行为。应用可以改变策略结果并在同一 Selected 会话再次调用
+<code>EstablishCommunicationAsync</code>；库不自动重试、不创建计时器或
+后台恢复循环。
+
 Equipment 可使用 <code>RegisterOnlineStateTransitionHandler</code> 注册
 单一可释放策略。每个结构有效的 Host 在线/离线请求都会把当前状态和目标
 状态交给处理器；返回 <code>false</code> 时 Equipment 发送 profile 的失败
@@ -72,10 +87,11 @@ Equipment 可使用 <code>RegisterOnlineStateTransitionHandler</code> 注册
 <code>GemRequestRejectedException</code>，不会更新观察状态。返回
 <code>true</code> 时仍先完整写出成功 Secondary，再更新 Equipment 状态。
 
-没有注册处理器时继续自动接受，保持此前行为。处理器在服务锁外执行；释放
+这两类策略没有注册处理器时都继续自动接受。处理器在服务锁外执行；释放
 注册只影响后续请求，已经取得的处理器快照会完成。处理器异常和取消继续
-传播给事件循环，不会被折叠为失败应答。同状态请求也会交给处理器。应用应
-遵守角色端点的单消费者事件循环约束，使状态转换按请求顺序执行。
+传播给事件循环，不会被折叠为失败应答。同状态在线请求也会交给处理器。
+应用应遵守角色端点的单消费者事件循环约束，使决策和状态转换按请求顺序
+执行。
 
 当前切片仍没有把变量、常量、时钟、报告、报警或命令硬性门控在某个 GEM
 状态上，也不自动重新建立通讯。这样可在尚未获得授权 E30 状态表前避免把
@@ -182,7 +198,8 @@ Host 返回完整结果，不把非零代码折叠成异常，也不解释代码
 - 基础 Primary 设置 W-Bit，请求体符合 profile 对应的空 Body、List、
   ASCII 或 Identity 结构；
 - Secondary 的 Stream、Function 和 W-Bit 与配置完全匹配；
-- 应答是单个 Binary 字节，接受的通讯建立应答包含两项 ASCII Identity；
+- 通讯建立回复是确认字节与身份组成的二元素 List；接受时必须包含两项
+  ASCII Identity，策略拒绝时使用 profile 失败确认和空身份 List；
 - 在线/离线请求必须设置 W-Bit 且 Body 为空；应用拒绝使用 profile 失败
   应答，接受应答写出完成前不得改变 Equipment 在线状态；
 - 状态变量和设备常量请求只引用已注册标识，提供器不得返回 null；
@@ -205,9 +222,8 @@ Host 返回完整结果，不把非零代码折叠成异常，也不解释代码
 
 畸形输入和提供器失败会作为异常返回应用事件循环；语义有效但引用未知变量
 或报告的配置使用失败应答拒绝。本切片尚未实现自动 S9Fx、错误 Secondary、
-通讯建立策略拒绝、自动重新建立、业务消息状态门控、报警历史/批量控制、
-命令目录/权限/调度或完整 GEM 错误恢复，这些行为不能从当前 API 推断为
-标准合规。
+自动重新建立、业务消息状态门控、报警历史/批量控制、命令目录/权限/调度
+或完整 GEM 错误恢复，这些行为不能从当前 API 推断为标准合规。
 
 ## 标准与验证边界
 
@@ -221,7 +237,8 @@ Host 返回完整结果，不把非零代码折叠成异常，也不解释代码
 [STANDARDS.md](STANDARDS.md)。
 
 当前证据包括三目标框架的严格输入测试，以及 Host Active / Equipment
-Passive 真实 TCP 下的双向通讯建立、在线转换接受/拒绝与状态保持、异构
+Passive 真实 TCP 下的双向通讯建立、首次建立拒绝后同会话恢复、已通讯
+重新建立拒绝时的状态/身份保持与恢复、在线转换接受/拒绝与状态保持、异构
 动态标识、报告定义、
 事件链接、Collection Event 嵌套值与空报告、报警通知接受/拒绝、配置/事件
 拒绝、报警目录全量/选择查询与释放快照、单报警发送启停与未知标识拒绝、

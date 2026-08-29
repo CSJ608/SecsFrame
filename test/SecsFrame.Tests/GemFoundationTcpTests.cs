@@ -20,10 +20,8 @@ public sealed class GemFoundationTcpTests
         await AssertAlarmNotificationsAsync(context).ConfigureAwait(true);
         await AssertRemoteCommandsAsync(context).ConfigureAwait(true);
         await AssertClockAsync(context).ConfigureAwait(true);
-        Assert.Equal(
-            context.HostServices.Identity,
-            await context.EquipmentServices.EstablishCommunicationAsync(
-                context.Token).ConfigureAwait(true));
+        await AssertCommunicationReestablishmentPolicyAsync(context)
+            .ConfigureAwait(true);
         await context.HostServices.RequestOfflineAsync(context.Token)
             .ConfigureAwait(true);
         await WaitUntilAsync(
@@ -37,8 +35,9 @@ public sealed class GemFoundationTcpTests
     private static async Task AssertCommunicationAndOnlineAsync(
         GemTcpContext context)
     {
-        var equipmentIdentity = await context.HostServices
-            .EstablishCommunicationAsync(context.Token).ConfigureAwait(true);
+        var equipmentIdentity =
+            await AssertInitialCommunicationEstablishmentPolicyAsync(context)
+                .ConfigureAwait(true);
         await WaitUntilAsync(
             () => context.EquipmentServices.CommunicationState ==
                 GemCommunicationState.Communicating,
@@ -65,6 +64,107 @@ public sealed class GemFoundationTcpTests
             context.Token).ConfigureAwait(true);
         Assert.Equal(GemOnlineState.Online, context.HostServices.OnlineState);
         Assert.Equal(GemOnlineState.Online, context.EquipmentServices.OnlineState);
+    }
+
+    private static async Task<GemIdentity>
+        AssertInitialCommunicationEstablishmentPolicyAsync(GemTcpContext context)
+    {
+        var acceptEstablishment = false;
+        var observed = new List<GemIdentity>();
+        GemIdentity equipmentIdentity;
+        using (context.EquipmentServices.RegisterCommunicationEstablishmentHandler(
+            (peerIdentity, cancellationToken) =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                observed.Add(peerIdentity);
+                return new ValueTask<bool>(acceptEstablishment);
+            }))
+        {
+            var rejected = await Assert.ThrowsAsync<GemRequestRejectedException>(
+                () => context.HostServices.EstablishCommunicationAsync(
+                    context.Token)).ConfigureAwait(true);
+            Assert.Equal(GemOperation.EstablishCommunication, rejected.Operation);
+            Assert.Equal((byte)1, rejected.Acknowledgement);
+            Assert.Equal(
+                GemCommunicationState.NotCommunicating,
+                context.HostServices.CommunicationState);
+            Assert.Equal(
+                GemCommunicationState.NotCommunicating,
+                context.EquipmentServices.CommunicationState);
+            Assert.Null(context.HostServices.PeerIdentity);
+            Assert.Null(context.EquipmentServices.PeerIdentity);
+
+            acceptEstablishment = true;
+            equipmentIdentity = await context.HostServices
+                .EstablishCommunicationAsync(context.Token).ConfigureAwait(true);
+        }
+
+        Assert.Equal(
+            new[]
+            {
+                context.HostServices.Identity,
+                context.HostServices.Identity,
+            },
+            observed);
+        return equipmentIdentity;
+    }
+
+    private static async Task AssertCommunicationReestablishmentPolicyAsync(
+        GemTcpContext context)
+    {
+        var hostPeerIdentity = context.HostServices.PeerIdentity;
+        var equipmentPeerIdentity = context.EquipmentServices.PeerIdentity;
+        Assert.NotNull(hostPeerIdentity);
+        Assert.NotNull(equipmentPeerIdentity);
+
+        var acceptEstablishment = false;
+        var observed = new List<GemIdentity>();
+        using (context.HostServices.RegisterCommunicationEstablishmentHandler(
+            (peerIdentity, cancellationToken) =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                observed.Add(peerIdentity);
+                return new ValueTask<bool>(acceptEstablishment);
+            }))
+        {
+            var rejected = await Assert.ThrowsAsync<GemRequestRejectedException>(
+                () => context.EquipmentServices.EstablishCommunicationAsync(
+                    context.Token)).ConfigureAwait(true);
+            Assert.Equal(GemOperation.EstablishCommunication, rejected.Operation);
+            Assert.Equal((byte)1, rejected.Acknowledgement);
+            Assert.Equal(
+                GemCommunicationState.Communicating,
+                context.HostServices.CommunicationState);
+            Assert.Equal(
+                GemCommunicationState.Communicating,
+                context.EquipmentServices.CommunicationState);
+            Assert.Equal(hostPeerIdentity, context.HostServices.PeerIdentity);
+            Assert.Equal(
+                equipmentPeerIdentity,
+                context.EquipmentServices.PeerIdentity);
+
+            acceptEstablishment = true;
+            Assert.Equal(
+                context.HostServices.Identity,
+                await context.EquipmentServices.EstablishCommunicationAsync(
+                    context.Token).ConfigureAwait(true));
+        }
+
+        await WaitUntilAsync(
+            () => context.EquipmentServices.Identity.Equals(
+                context.HostServices.PeerIdentity),
+            context.Token).ConfigureAwait(true);
+        Assert.Equal(
+            new[]
+            {
+                context.EquipmentServices.Identity,
+                context.EquipmentServices.Identity,
+            },
+            observed);
+        Assert.Equal(
+            context.HostServices.Identity,
+            await context.EquipmentServices.EstablishCommunicationAsync(
+                context.Token).ConfigureAwait(true));
     }
 
     private static async Task AssertOnlineTransitionPolicyAsync(
