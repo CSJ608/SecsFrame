@@ -13,6 +13,8 @@ StreamFrame          TCP、Pipe、帧边界、连接生命周期
 E172 SEDD 与 E173 SMN 是可选元数据/表示层，不进入核心通讯路径。
 <code>SecsFrame.Sml</code> 同样是只依赖核心动态消息模型的可选调试表示层；
 核心包不反向依赖它。
+<code>SecsFrame.Trace</code> 依赖 SML 表示层和核心公共发送 API，只处理已经
+解码的数据消息；它不订阅内部 transport 或创建第二个公共事件消费者。
 
 ## 核心原则
 
@@ -160,5 +162,7 @@ HSMS 头 Session ID 与 System Bytes。没有 W-Bit 的出站消息在写出后
 - `SecsFrame` 可以依赖 `StreamFrame`。
 - `SecsFrame.Gem` 依赖 `SecsFrame`。
 - `SecsFrame.Sml` 依赖 `SecsFrame`，不得依赖 GEM 或线上传输实现。
+- `SecsFrame.Trace` 依赖 `SecsFrame.Sml` 与 `SecsFrame`，重放必须回到
+  公共发送 API，不得直接构造或写出保留旧事务标识的线上帧。
 - 核心包不得依赖 GEM、SML/SMN、依赖注入容器或具体日志实现。
 - 状态机计时使用可替换的时间抽象，测试不得依赖真实长时间等待。

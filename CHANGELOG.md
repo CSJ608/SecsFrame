@@ -21,6 +21,15 @@
 
 ### 新增
 
+- 增加独立 <code>SecsFrame.Trace</code> 程序集和版本化
+  <code>SecsFrame-Trace/1</code> 信封，为已解码数据消息提供确定性导出与
+  严格读取，并保留 UTC 时间、方向和可选 HSMS 诊断标识。
+- 增加按 S/F 与 Item List 路径执行的结构化替换脱敏；路径漂移和重叠规则
+  明确失败，避免敏感值因字符串替换或 Schema 变化而静默泄漏。
+- 增加显式 allowlist 的受控重放；只重放 Sent 记录，忽略旧 Session ID、
+  System Bytes、时间和回复令牌，通过公共发送 API 创建新事务。
+- 增加 Trace 黄金向量、畸形信封、资源限制、脱敏泄漏、预验证和真实 TCP
+  新事务测试。
 - 增加独立 <code>SecsFrame.Sml</code> 程序集，为动态消息和全部 Item 类型
   提供确定性 SML 调试文本写出与严格读取。
 - 增加 ASCII 可逆转义、JIS-8 原始十六进制字节、InvariantCulture 数字、

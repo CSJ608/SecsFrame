@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/SecsFrame.Gem/SecsFrame.Gem.csproj" />
     <Project Path="src/SecsFrame.Sml/SecsFrame.Sml.csproj" />
+    <Project Path="src/SecsFrame.Trace/SecsFrame.Trace.csproj" />
     <Project Path="src/SecsFrame/SecsFrame.csproj" />
   </Folder>
   <Folder Name="/test/">
