@@ -235,6 +235,146 @@ public sealed class SecsTraceTests
     }
 
     [Fact]
+    public async Task Timed_replay_scales_caps_and_filters_source_intervals()
+    {
+        var delays = new List<TimeSpan>();
+        var sent = new List<byte>();
+        var replayer = new SecsTraceReplayer(
+            SecsTraceReplayer.DefaultMaxRecordCount,
+            (delay, _) =>
+            {
+                delays.Add(delay);
+                return Task.CompletedTask;
+            });
+        var records = new[]
+        {
+            SentAt(TimeSpan.Zero, stream: 1, function: 1),
+            SentAt(TimeSpan.FromSeconds(100), stream: 2, function: 2),
+            new SecsTraceRecord(Epoch.AddSeconds(200), SecsTraceDirection.Received, new SecsMessage(1, 9)),
+            SentAt(TimeSpan.FromSeconds(10), stream: 1, function: 3),
+            SentAt(TimeSpan.FromSeconds(13), stream: 1, function: 5),
+        };
+        var timing = new SecsTraceReplayTimingOptions(
+            speedMultiplier: 2,
+            maxDelay: TimeSpan.FromSeconds(4));
+
+        var results = await replayer.ReplayWithTimingAsync(
+            records,
+            (message, _) =>
+            {
+                sent.Add(message.Function);
+                return Task.FromResult<HsmsDataMessage?>(null);
+            },
+            record => record.Message.Stream == 1,
+            timing).ConfigureAwait(true);
+
+        Assert.Equal(new byte[] { 1, 3, 5 }, sent);
+        Assert.Equal(new[] { TimeSpan.FromSeconds(4), TimeSpan.FromSeconds(1.5) }, delays);
+        Assert.Equal(3, results.Count);
+    }
+
+    [Fact]
+    public async Task Timed_replay_rejects_timestamp_regression_before_delay_or_send()
+    {
+        var delays = 0;
+        var sends = 0;
+        var replayer = new SecsTraceReplayer(
+            SecsTraceReplayer.DefaultMaxRecordCount,
+            (_, _) =>
+            {
+                delays++;
+                return Task.CompletedTask;
+            });
+        var records = new[]
+        {
+            SentAt(TimeSpan.FromSeconds(2), stream: 1, function: 1),
+            SentAt(TimeSpan.FromSeconds(1), stream: 1, function: 3),
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => replayer.ReplayWithTimingAsync(
+            records,
+            (_, _) =>
+            {
+                sends++;
+                return Task.FromResult<HsmsDataMessage?>(null);
+            },
+            _ => true,
+            new SecsTraceReplayTimingOptions())).ConfigureAwait(true);
+
+        Assert.Equal(0, delays);
+        Assert.Equal(0, sends);
+    }
+
+    [Fact]
+    public async Task Default_replay_ignores_timestamps_and_never_invokes_delay()
+    {
+        var sends = 0;
+        var replayer = new SecsTraceReplayer(
+            SecsTraceReplayer.DefaultMaxRecordCount,
+            (_, _) => throw new InvalidOperationException("Default replay must not delay."));
+        var records = new[]
+        {
+            SentAt(TimeSpan.FromSeconds(2), stream: 1, function: 1),
+            SentAt(TimeSpan.FromSeconds(1), stream: 1, function: 3),
+        };
+
+        var results = await replayer.ReplayAsync(
+            records,
+            (_, _) =>
+            {
+                sends++;
+                return Task.FromResult<HsmsDataMessage?>(null);
+            },
+            _ => true).ConfigureAwait(true);
+
+        Assert.Equal(2, sends);
+        Assert.Equal(2, results.Count);
+    }
+
+    [Fact]
+    public async Task Canceling_a_timed_delay_prevents_the_next_send()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var sends = 0;
+        var replayer = new SecsTraceReplayer(
+            SecsTraceReplayer.DefaultMaxRecordCount,
+            (_, token) =>
+            {
+                cancellation.Cancel();
+                return Task.FromCanceled(token);
+            });
+        var records = new[]
+        {
+            SentAt(TimeSpan.Zero, stream: 1, function: 1),
+            SentAt(TimeSpan.FromSeconds(1), stream: 1, function: 3),
+        };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => replayer.ReplayWithTimingAsync(
+            records,
+            (_, _) =>
+            {
+                sends++;
+                return Task.FromResult<HsmsDataMessage?>(null);
+            },
+            _ => true,
+            new SecsTraceReplayTimingOptions(),
+            cancellation.Token)).ConfigureAwait(true);
+
+        Assert.Equal(1, sends);
+    }
+
+    [Fact]
+    public void Timing_options_reject_non_finite_speed_and_non_positive_delay()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new SecsTraceReplayTimingOptions(speedMultiplier: 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new SecsTraceReplayTimingOptions(speedMultiplier: -1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new SecsTraceReplayTimingOptions(speedMultiplier: double.NaN));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new SecsTraceReplayTimingOptions(speedMultiplier: double.PositiveInfinity));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new SecsTraceReplayTimingOptions(maxDelay: TimeSpan.Zero));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new SecsTraceReplayTimingOptions(maxDelay: TimeSpan.FromTicks(-1)));
+    }
+
+    [Fact]
     public async Task Replay_uses_a_new_real_tcp_transaction_and_ignores_received_records()
     {
         var port = GetFreePort();
@@ -286,6 +426,14 @@ public sealed class SecsTraceTests
 
     private static DateTimeOffset Epoch
         => new(1970, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+    private static SecsTraceRecord SentAt(
+        TimeSpan offset,
+        byte stream,
+        byte function)
+        => SecsTraceRecord.CreateSent(
+            Epoch.Add(offset),
+            new SecsMessage(stream, function));
 
     private static int GetFreePort()
     {
