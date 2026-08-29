@@ -443,25 +443,9 @@ public sealed class GemFoundationTcpTests
 
     private static async Task AssertAlarmNotificationsAsync(GemTcpContext context)
     {
-        var received = new TaskCompletionSource<GemAlarmNotification>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        using (context.HostServices.RegisterAlarmNotificationHandler(
-            (notification, cancellationToken) =>
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                received.TrySetResult(notification);
-                return new ValueTask<bool>(true);
-            }))
-        {
-            await context.EquipmentServices.SendAlarmNotificationAsync(
-                new GemAlarmNotification(
-                    0x81,
-                    SecsItem.Ascii("DOOR-01"),
-                    "DOOR OPEN"),
-                context.Token).ConfigureAwait(true);
-        }
-
-        var notification = await received.Task.ConfigureAwait(true);
+        var notification =
+            await AssertAlarmNotificationSendPolicyAsync(context)
+                .ConfigureAwait(true);
         Assert.Equal((byte)0x81, notification.Code);
         Assert.Equal(SecsItem.Ascii("DOOR-01"), notification.AlarmId);
         Assert.Equal("DOOR OPEN", notification.Text);
@@ -475,6 +459,53 @@ public sealed class GemFoundationTcpTests
                 context.Token)).ConfigureAwait(true);
         Assert.Equal(GemOperation.AlarmNotification, rejected.Operation);
         Assert.Equal((byte)1, rejected.Acknowledgement);
+    }
+
+    private static async Task<GemAlarmNotification>
+        AssertAlarmNotificationSendPolicyAsync(GemTcpContext context)
+    {
+        var received = new TaskCompletionSource<GemAlarmNotification>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var notification = new GemAlarmNotification(
+            0x81,
+            SecsItem.Ascii("DOOR-01"),
+            "DOOR OPEN");
+        var acceptSend = false;
+        var observed = new List<(
+            GemCommunicationState Communication,
+            GemOnlineState Online,
+            GemAlarmNotification Notification)>();
+        using var hostRegistration =
+            context.HostServices.RegisterAlarmNotificationHandler(
+                (value, _) =>
+                {
+                    received.TrySetResult(value);
+                    return new ValueTask<bool>(true);
+                });
+        using var policyRegistration =
+            context.EquipmentServices.RegisterAlarmNotificationSendPolicyHandler(
+                (communication, online, value, _) =>
+                {
+                    observed.Add((communication, online, value));
+                    return new ValueTask<bool>(acceptSend);
+                });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => context.EquipmentServices.SendAlarmNotificationAsync(
+                notification,
+                context.Token)).ConfigureAwait(true);
+        Assert.False(received.Task.IsCompleted);
+
+        acceptSend = true;
+        await context.EquipmentServices.SendAlarmNotificationAsync(
+            notification,
+            context.Token).ConfigureAwait(true);
+
+        Assert.Equal(2, observed.Count);
+        Assert.All(observed, item => Assert.Equal(
+            (GemCommunicationState.Communicating, GemOnlineState.Online, notification),
+            item));
+        return await received.Task.ConfigureAwait(true);
     }
 
     private static async Task AssertAlarmCatalogAsync(GemTcpContext context)
@@ -525,10 +556,8 @@ public sealed class GemFoundationTcpTests
             alarmId,
             Assert.Single(await context.HostServices.ListAlarmsAsync(
                 cancellationToken: context.Token).ConfigureAwait(true)).AlarmId);
-        await Assert.ThrowsAsync<InvalidOperationException>(
-            () => context.EquipmentServices.SendAlarmNotificationAsync(
-                new GemAlarmNotification(0x81, alarmId, "CONTROLLED ALARM"),
-                context.Token)).ConfigureAwait(true);
+        await AssertDisabledAlarmPrecedesSendPolicyAsync(context, alarmId)
+            .ConfigureAwait(true);
 
         await context.HostServices.SetAlarmSendEnabledAsync(
             alarmId,
@@ -567,6 +596,26 @@ public sealed class GemFoundationTcpTests
         using var replacement = context.EquipmentServices.RegisterAlarm(
             new GemAlarmDefinition(0x81, alarmId, "CONTROLLED ALARM"));
         Assert.True(replacement.IsSendEnabled);
+    }
+
+    private static async Task AssertDisabledAlarmPrecedesSendPolicyAsync(
+        GemTcpContext context,
+        SecsItem alarmId)
+    {
+        var policyCalls = 0;
+        using var policyRegistration =
+            context.EquipmentServices.RegisterAlarmNotificationSendPolicyHandler(
+                (_, _, _, _) =>
+                {
+                    policyCalls++;
+                    return new ValueTask<bool>(true);
+                });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => context.EquipmentServices.SendAlarmNotificationAsync(
+                new GemAlarmNotification(0x81, alarmId, "CONTROLLED ALARM"),
+                context.Token)).ConfigureAwait(true);
+        Assert.Equal(0, policyCalls);
     }
 
     private static async Task AssertRemoteCommandsAsync(GemTcpContext context)
