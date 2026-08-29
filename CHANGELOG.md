@@ -26,6 +26,12 @@
 
 ### 新增
 
+- 增加独立 <code>SecsFrame.Soak</code> 可执行程序，在真实 TCP 待处理事务中
+  按显式随机种子选择双方 Separate 或端点销毁重建，恢复 Selected 后立即
+  验证新事务；普通 <code>dotnet test</code> 不执行该长时负载。
+- 增加手动和每周定时的 <code>session-soak</code> 工作流，固定 20 分钟程序
+  上限、25 分钟作业上限和每周期 20 秒上限；成功或失败均上传包含 commit、
+  运行时、seed、故障序列和结果的 JSONL，保留 14 天。
 - 增加真实 TCP Active/Passive 重复会话抖动故障注入测试；固定三轮断开与
   重选并复用相同 System Bytes，验证待处理事务确定中断、旧回复与强制迟到
   T3 回调不污染替换会话，且新事务可成功完成。
