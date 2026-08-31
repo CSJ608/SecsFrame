@@ -20,8 +20,8 @@ GitHub Issue/Actions：
 
 ## 当前基线
 
-截至 2026-08-30，本切片基于 `main` 的 PR #42（提交 `64713b7`），升级后
-基线为：
+截至 2026-08-31，本切片在 StreamFrame 2.6.0 与独立 session soak 基线上
+继续开发，当前基线为：
 
 - StreamFrame 固定为官方 NuGet `2.6.0`。
 - secs4net 互操作测试固定为 nuget.org 官方 `3.1.0`，不得改用源码引用或
@@ -39,6 +39,10 @@ GitHub Issue/Actions：
 - 独立 <code>SecsFrame.Soak</code> 和 <code>session-soak</code> 工作流提供
   显式 seed、四类真实 TCP 故障、程序/周期/作业三层上限及 14 天 JSONL
   产物；普通 CI 只编译 harness，不运行长时负载。
+- 本机 <code>SecsFrame.CommunicationDemo</code> 已形成连接、SML 发送、
+  Linktest/Separate 和会话内诊断活动流的首条纵向链路；
+  <code>SecsFrame.GuidedDemo</code> 已形成五步真实核心链路演示。两个项目
+  的注意力模型、运行边界和跨会话账本见 [Demo 接续](DEMOS.md)。
 - 最近一次完整本地验证中，核心测试在 `net48`、`net8.0`、`net10.0` 各
   通过 289 项；官方 secs4net 互操作测试在 `net8.0`、`net10.0` 各通过
   2 项。
@@ -93,6 +97,11 @@ Primary/Secondary、断开和重选，并验证：
 且失败定位信息完整；随后观察至少三次每周定时运行，再决定是否增加 TCP
 half-close、reset 或跨平台矩阵。扩大故障范围前必须保持固定运行上限和可
 重现输入，也不能用 soak 替代确定性回归和完整普通 CI。
+
+Demo 工作按 [Demo 体验与迭代接续](DEMOS.md) 独立分轮：当前 D1、D2 已完成，
+下一开发会话最多推进 D3、D4。D3 先为通讯工具增加入站回复、消息收藏和日志
+筛选/脱敏导出；任何落盘或分享能力必须先明确数据分级。D4 再把既有 GEM
+基础与 Trace/诊断能力加入固定演示脚本，不新增未经标准核对的消息语义。
 
 ## 状态更新规则
 
