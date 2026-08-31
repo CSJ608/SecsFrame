@@ -1,0 +1,243 @@
+@page "/"
+@implements IDisposable
+@inject GuidedDemoSession Session
+
+<PageTitle>SecsFrame 分步演示</PageTitle>
+
+<div class="tour-shell">
+    <header class="tour-header">
+        <div class="brand-block">
+            <span class="brand-mark" aria-hidden="true">SF</span>
+            <div>
+                <h1>核心能力演示</h1>
+                <p>SecsFrame Guided Demo</p>
+            </div>
+        </div>
+        <div class="session-state" aria-live="polite">
+            <span class="state-dot state-@Session.State.ToString().ToLowerInvariant()"></span>
+            <span>@Session.State</span>
+        </div>
+    </header>
+
+    <div class="tour-progress" aria-label="演示进度">
+        <div class="tour-progress-bar"
+             style="width: @(Session.ProgressPercent)%"></div>
+    </div>
+
+    <main class="tour-layout">
+        <aside class="step-rail" aria-label="演示步骤">
+            <div class="rail-heading">
+                <span>演示流程</span>
+                <strong>@Session.Results.Count / @Session.Steps.Count</strong>
+            </div>
+            <ol>
+                @for (var index = 0; index < Session.Steps.Count; index++)
+                {
+                    var step = Session.Steps[index];
+                    var state = StepState(index);
+                    <li class="step-item @state">
+                        <span class="step-number">@step.Number.ToString("00")</span>
+                        <div>
+                            <strong>@step.Name</strong>
+                            <span>@step.Focus</span>
+                        </div>
+                    </li>
+                }
+            </ol>
+        </aside>
+
+        <section class="stage" aria-live="polite">
+            <div class="stage-kicker">
+                @if (!Session.IsStarted)
+                {
+                    <span>准备</span>
+                }
+                else if (Session.IsComplete)
+                {
+                    <span>完成</span>
+                }
+                else
+                {
+                    <span>步骤 @((Session.CurrentStepIndex + 1).ToString("00"))</span>
+                }
+            </div>
+
+            <div class="stage-heading">
+                <h2>@StageTitle</h2>
+                <p>@StageSummary</p>
+            </div>
+
+            @if (Session.IsBusy)
+            {
+                <div class="running-state" role="status">
+                    <span class="running-mark" aria-hidden="true"></span>
+                    <strong>正在执行真实操作</strong>
+                </div>
+            }
+            else if (!string.IsNullOrEmpty(Session.Error))
+            {
+                <div class="error-state" role="alert">
+                    <strong>本步未完成</strong>
+                    <span>@Session.Error</span>
+                </div>
+            }
+            else if (Session.CurrentResult is { } current)
+            {
+                <dl class="evidence-grid">
+                    @foreach (var evidence in current.Evidence)
+                    {
+                        <div>
+                            <dt>@evidence.Label</dt>
+                            <dd>@evidence.Value</dd>
+                        </div>
+                    }
+                </dl>
+
+                @if (!string.IsNullOrEmpty(current.Code))
+                {
+                    <div class="code-evidence">
+                        <div class="code-heading">
+                            <span>SML 证据</span>
+                            <span>确定性调试文本</span>
+                        </div>
+                        <pre>@current.Code</pre>
+                    </div>
+                }
+            }
+            else
+            {
+                <div class="ready-surface">
+                    <span class="ready-index">5</span>
+                    <div>
+                        <strong>固定步骤</strong>
+                        <span>真实 TCP、消息、事务、控制与恢复</span>
+                    </div>
+                </div>
+            }
+
+            <div class="stage-actions">
+                @if (!Session.IsStarted)
+                {
+                    <button type="button"
+                            class="button button-primary"
+                            disabled="@Session.IsBusy"
+                            @onclick="Session.StartAsync">开始演示</button>
+                }
+                else if (Session.IsComplete)
+                {
+                    <button type="button"
+                            class="button button-secondary"
+                            disabled="@Session.IsBusy"
+                            @onclick="Session.RestartAsync">重新演示</button>
+                }
+                else
+                {
+                    <button type="button"
+                            class="button button-primary"
+                            disabled="@Session.IsBusy"
+                            @onclick="Session.NextAsync">@NextActionLabel</button>
+                }
+            </div>
+        </section>
+
+        <aside class="evidence-rail">
+            <div class="rail-heading">
+                <span>已验证</span>
+                <strong>@Session.Results.Count</strong>
+            </div>
+
+            @if (Session.Results.Count == 0)
+            {
+                <div class="history-empty">
+                    <strong>等待开始</strong>
+                    <span>每步结果会保留在这里</span>
+                </div>
+            }
+            else
+            {
+                <ol class="result-history">
+                    @foreach (var result in Session.Results.Reverse())
+                    {
+                        <li @key="result.StepNumber">
+                            <span>@result.StepNumber.ToString("00")</span>
+                            <div>
+                                <strong>@result.Title</strong>
+                                <p>@result.Summary</p>
+                            </div>
+                        </li>
+                    }
+                </ol>
+            }
+
+            <div class="boundary-note">
+                <strong>工程演示边界</strong>
+                <span>固定回环脚本不是设备 Profile 或一致性测试。</span>
+            </div>
+        </aside>
+    </main>
+</div>
+
+@code {
+    private string StageTitle
+    {
+        get
+        {
+            if (!Session.IsStarted)
+                return "从连接到恢复";
+            if (Session.IsComplete)
+                return "演示完成";
+            if (Session.IsBusy)
+                return Session.Steps[Session.CurrentStepIndex].Name;
+            if (Session.CurrentResult is { } result)
+                return result.Title;
+            return Session.Steps[Session.CurrentStepIndex].Name;
+        }
+    }
+
+    private string StageSummary
+    {
+        get
+        {
+            if (!Session.IsStarted)
+                return "五个动作依次展示当前核心 HSMS 与动态消息成果。";
+            if (Session.IsComplete)
+                return "五个真实动作均已完成，所有证据保留在本次会话中。";
+            if (Session.IsBusy)
+                return Session.Steps[Session.CurrentStepIndex].Focus;
+            if (Session.CurrentResult is { } result)
+                return result.Summary;
+            return Session.Steps[Session.CurrentStepIndex].Focus;
+        }
+    }
+
+    private string NextActionLabel
+    {
+        get
+        {
+            if (!string.IsNullOrEmpty(Session.Error))
+                return "重试本步";
+            var next = Session.Results.Count;
+            return next < Session.Steps.Count
+                ? $"下一步：{Session.Steps[next].Name}"
+                : "完成";
+        }
+    }
+
+    protected override void OnInitialized()
+        => Session.Changed += HandleSessionChanged;
+
+    public void Dispose()
+        => Session.Changed -= HandleSessionChanged;
+
+    private string StepState(int index)
+    {
+        if (index < Session.Results.Count)
+            return "is-complete";
+        if (Session.IsStarted && index == Session.CurrentStepIndex)
+            return "is-active";
+        return "is-pending";
+    }
+
+    private void HandleSessionChanged(object? sender, EventArgs args)
+        => _ = InvokeAsync(StateHasChanged);
+}

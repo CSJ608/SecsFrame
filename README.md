@@ -70,6 +70,8 @@ Item 用法与边界见
 [docs/HSMS-PRIMARY-ROUTING.md](docs/HSMS-PRIMARY-ROUTING.md)，
 Host/Equipment 端点见
 [docs/SECS-ENDPOINT-ROLES.md](docs/SECS-ENDPOINT-ROLES.md)，
+本机通讯工具、分步成果演示及跨会话迭代接续见
+[docs/DEMOS.md](docs/DEMOS.md)，
 独立 GEM 基础行为见
 [docs/GEM-FOUNDATION.md](docs/GEM-FOUNDATION.md)，
 SML 调试文本见
@@ -123,6 +125,24 @@ var codec = new HsmsDataMessageCodec();
 dotnet build SecsFrame.slnx -c Release
 dotnet test SecsFrame.slnx -c Release --no-build
 ```
+
+## Demo
+
+通讯测试工具：
+
+```bash
+dotnet run --project demo/SecsFrame.CommunicationDemo/SecsFrame.CommunicationDemo.csproj
+```
+
+分步成果演示：
+
+```bash
+dotnet run --project demo/SecsFrame.GuidedDemo/SecsFrame.GuidedDemo.csproj
+```
+
+两个 Demo 均为本机 Interactive Server 应用。默认分别使用
+<http://localhost:5080> 与 <http://localhost:5081>；工程回环和固定脚本
+不代表设备消息 Profile、标准合规或生产就绪。
 
 ## 许可证
 

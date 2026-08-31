@@ -26,6 +26,14 @@
 
 ### 新增
 
+- 增加本机 <code>SecsFrame.CommunicationDemo</code> 通讯测试工具，提供
+  Active/Passive 显式连接配置、真实 TCP 回环、严格 SML 编辑与样例、
+  数据/控制消息操作，以及最多 500 条的会话内活动和结构化诊断视图。
+- 增加独立 <code>SecsFrame.GuidedDemo</code> 分步成果演示，以固定输入逐步
+  执行真实 Select、动态 Item/SML、Primary/Secondary、Linktest 和 Separate
+  后新会话恢复，并保留每一步的可见证据。
+- 增加 Demo 注意力模型、工程边界、每会话最多两轮的迭代账本和跨会话接续
+  约定；工程回环与固定脚本均不声明设备 Profile 或 SEMI 一致性。
 - 增加独立 <code>SecsFrame.Soak</code> 可执行程序，在真实 TCP 待处理事务中
   按显式随机种子选择双方 Separate 或端点销毁重建，恢复 Selected 后立即
   验证新事务；普通 <code>dotnet test</code> 不执行该长时负载。

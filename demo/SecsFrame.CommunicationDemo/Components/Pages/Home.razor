@@ -1,0 +1,272 @@
+@page "/"
+@implements IDisposable
+@inject CommunicationWorkspace Workspace
+
+<PageTitle>SecsFrame 通讯测试工具</PageTitle>
+
+<div class="tool-shell">
+    <header class="tool-header">
+        <div class="brand-block">
+            <span class="brand-mark" aria-hidden="true">SF</span>
+            <div>
+                <h1>通讯测试工具</h1>
+                <p>SecsFrame 工程演示</p>
+            </div>
+        </div>
+        <div class="connection-summary" aria-live="polite">
+            <span class="state-dot state-@Workspace.State.ToString().ToLowerInvariant()"></span>
+            <strong>@Workspace.State</strong>
+            <span>@Workspace.Endpoint</span>
+        </div>
+    </header>
+
+    <main class="tool-main">
+        <section class="tool-pane connection-pane @(Workspace.IsConnected ? null : "is-focus")">
+            <div class="pane-heading">
+                <div>
+                    <span class="step-label">01</span>
+                    <h2>连接</h2>
+                </div>
+            </div>
+
+            <EditForm Model="_draft" OnValidSubmit="ConnectAsync">
+                <DataAnnotationsValidator />
+                <ValidationSummary class="validation-summary" />
+
+                <label class="check-row">
+                    <InputCheckbox @bind-Value="_draft.UseLoopbackPeer"
+                                   disabled="@Workspace.IsConnected" />
+                    <span>
+                        <strong>本机回环端</strong>
+                        <small>无需外部设备</small>
+                    </span>
+                </label>
+
+                <div class="field-grid">
+                    <label class="field field-wide">
+                        <span>IP 地址</span>
+                        <InputText @bind-Value="_draft.IpAddress"
+                                   disabled="@(Workspace.IsConnected || _draft.UseLoopbackPeer)" />
+                        <ValidationMessage For="@(() => _draft.IpAddress)" />
+                    </label>
+                    <label class="field">
+                        <span>端口</span>
+                        <InputNumber @bind-Value="_draft.Port"
+                                     disabled="@Workspace.IsConnected" />
+                    </label>
+                    <label class="field">
+                        <span>模式</span>
+                        <InputSelect @bind-Value="_draft.ConnectionMode"
+                                     disabled="@(Workspace.IsConnected || _draft.UseLoopbackPeer)">
+                            <option value="@HsmsConnectionMode.Active">Active</option>
+                            <option value="@HsmsConnectionMode.Passive">Passive</option>
+                        </InputSelect>
+                    </label>
+                    <label class="field field-wide">
+                        <span>Session ID</span>
+                        <InputNumber @bind-Value="_draft.SessionId"
+                                     disabled="@Workspace.IsConnected" />
+                    </label>
+                </div>
+
+                <details class="timer-settings">
+                    <summary>计时参数</summary>
+                    <div class="field-grid timer-grid">
+                        <label class="field">
+                            <span>T3 秒</span>
+                            <InputNumber @bind-Value="_draft.T3Seconds" disabled="@Workspace.IsConnected" />
+                        </label>
+                        <label class="field">
+                            <span>T5 秒</span>
+                            <InputNumber @bind-Value="_draft.T5Seconds" disabled="@Workspace.IsConnected" />
+                        </label>
+                        <label class="field">
+                            <span>T6 秒</span>
+                            <InputNumber @bind-Value="_draft.T6Seconds" disabled="@Workspace.IsConnected" />
+                        </label>
+                        <label class="field">
+                            <span>T7 秒</span>
+                            <InputNumber @bind-Value="_draft.T7Seconds" disabled="@Workspace.IsConnected" />
+                        </label>
+                        <label class="field">
+                            <span>T8 秒</span>
+                            <InputNumber @bind-Value="_draft.T8Seconds" disabled="@Workspace.IsConnected" />
+                        </label>
+                    </div>
+                </details>
+
+                <div class="primary-actions">
+                    @if (Workspace.IsConnected)
+                    {
+                        <button type="button"
+                                class="button button-secondary button-block"
+                                disabled="@Workspace.IsBusy"
+                                @onclick="DisconnectAsync">断开</button>
+                    }
+                    else
+                    {
+                        <button type="submit"
+                                class="button button-primary button-block"
+                                disabled="@Workspace.IsBusy">连接</button>
+                    }
+                </div>
+            </EditForm>
+        </section>
+
+        <section class="tool-pane message-pane @(Workspace.State == HsmsSessionState.Selected ? "is-focus" : null)">
+            <div class="pane-heading">
+                <div>
+                    <span class="step-label">02</span>
+                    <h2>消息</h2>
+                </div>
+                <span class="editor-status">@EditorStatus</span>
+            </div>
+
+            <label class="field template-field">
+                <span>消息样例</span>
+                <select value="@_selectedTemplate" @onchange="SelectTemplate">
+                    @foreach (var template in MessageTemplate.All)
+                    {
+                        <option value="@template.Id">@template.Name</option>
+                    }
+                </select>
+            </label>
+
+            <label class="field message-editor">
+                <span>SML</span>
+                <textarea @bind="_sml"
+                          spellcheck="false"
+                          aria-label="SML 消息编辑器"></textarea>
+            </label>
+
+            @if (!string.IsNullOrEmpty(_operationError))
+            {
+                <p class="operation-error" role="alert">@_operationError</p>
+            }
+
+            <div class="message-actions">
+                <button type="button"
+                        class="button button-primary"
+                        disabled="@(!CanOperate)"
+                        @onclick="SendAsync">发送</button>
+                <button type="button"
+                        class="button button-secondary"
+                        disabled="@(!CanOperate)"
+                        @onclick="LinktestAsync">Linktest</button>
+                <button type="button"
+                        class="button button-secondary"
+                        disabled="@(!CanOperate)"
+                        @onclick="SeparateAsync">Separate</button>
+            </div>
+        </section>
+
+        <section class="tool-pane activity-pane">
+            <div class="pane-heading">
+                <div>
+                    <span class="step-label">03</span>
+                    <h2>活动与诊断</h2>
+                </div>
+                <button type="button"
+                        class="text-button"
+                        disabled="@(Workspace.Activities.Count == 0)"
+                        @onclick="Workspace.ClearActivities">清空</button>
+            </div>
+
+            <div class="activity-feed" aria-live="polite">
+                @if (Workspace.Activities.Count == 0)
+                {
+                    <div class="empty-state">
+                        <strong>暂无活动</strong>
+                        <span>连接状态、消息和诊断将在这里出现</span>
+                    </div>
+                }
+                else
+                {
+                    <ol>
+                        @foreach (var entry in Workspace.Activities)
+                        {
+                            <li class="activity-item tone-@entry.Tone.ToString().ToLowerInvariant()"
+                                @key="entry.Id">
+                                <div class="activity-meta">
+                                    <span>@entry.Timestamp.ToString("HH:mm:ss.fff")</span>
+                                    <span>@entry.Category</span>
+                                </div>
+                                <strong>@entry.Title</strong>
+                                <p>@entry.Summary</p>
+                                @if (!string.IsNullOrEmpty(entry.Detail))
+                                {
+                                    <details>
+                                        <summary>查看详情</summary>
+                                        <pre>@entry.Detail</pre>
+                                    </details>
+                                }
+                            </li>
+                        }
+                    </ol>
+                }
+            </div>
+        </section>
+    </main>
+</div>
+
+@code {
+    private readonly ConnectionDraft _draft = new();
+    private string _selectedTemplate = MessageTemplate.All[0].Id;
+    private string _sml = MessageTemplate.All[0].Sml;
+    private string? _operationError;
+
+    private bool CanOperate =>
+        Workspace.State == HsmsSessionState.Selected &&
+        !Workspace.IsBusy;
+
+    private string EditorStatus => Workspace.State == HsmsSessionState.Selected
+        ? "可发送"
+        : "等待 Selected";
+
+    protected override void OnInitialized()
+        => Workspace.Changed += HandleWorkspaceChanged;
+
+    public void Dispose()
+        => Workspace.Changed -= HandleWorkspaceChanged;
+
+    private async Task ConnectAsync()
+        => await RunUiOperationAsync(() => Workspace.ConnectAsync(_draft));
+
+    private async Task DisconnectAsync()
+        => await RunUiOperationAsync(Workspace.DisconnectAsync);
+
+    private async Task SendAsync()
+        => await RunUiOperationAsync(() => Workspace.SendAsync(_sml));
+
+    private async Task LinktestAsync()
+        => await RunUiOperationAsync(Workspace.LinktestAsync);
+
+    private async Task SeparateAsync()
+        => await RunUiOperationAsync(Workspace.SeparateAsync);
+
+    private void SelectTemplate(ChangeEventArgs args)
+    {
+        _selectedTemplate = args.Value?.ToString() ??
+            MessageTemplate.All[0].Id;
+        var template = MessageTemplate.All
+            .Single(item => item.Id == _selectedTemplate);
+        _sml = template.Sml;
+        _operationError = null;
+    }
+
+    private async Task RunUiOperationAsync(Func<Task> operation)
+    {
+        _operationError = null;
+        try
+        {
+            await operation();
+        }
+        catch (Exception error)
+        {
+            _operationError = error.Message;
+        }
+    }
+
+    private void HandleWorkspaceChanged(object? sender, EventArgs args)
+        => _ = InvokeAsync(StateHasChanged);
+}
