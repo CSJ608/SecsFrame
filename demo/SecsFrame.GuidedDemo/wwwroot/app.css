@@ -575,7 +575,8 @@ button:disabled {
 
     .step-rail ol {
         display: grid;
-        grid-template-columns: repeat(5, minmax(0, 1fr));
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px 4px;
     }
 
     .step-item {
@@ -588,12 +589,7 @@ button:disabled {
     }
 
     .step-item:not(:last-child)::after {
-        top: 16px;
-        right: -50%;
-        bottom: auto;
-        left: 50%;
-        width: 100%;
-        height: 1px;
+        display: none;
     }
 
     .step-item > div {

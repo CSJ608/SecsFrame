@@ -330,8 +330,80 @@ textarea:disabled {
     margin-bottom: 12px;
 }
 
+.mode-switch {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-bottom: 14px;
+    border: 1px solid #b8c5c0;
+    border-radius: 4px;
+}
+
+.mode-switch button {
+    min-width: 0;
+    min-height: 38px;
+    padding: 7px 10px;
+    color: #52615c;
+    background: #ffffff;
+    border: 0;
+    font-size: 0.76rem;
+    font-weight: 600;
+}
+
+.mode-switch button + button {
+    border-left: 1px solid #b8c5c0;
+}
+
+.mode-switch button.is-active {
+    color: #ffffff;
+    background: #26755f;
+}
+
+.mode-switch button span {
+    display: inline-grid;
+    min-width: 20px;
+    height: 20px;
+    margin-left: 4px;
+    place-items: center;
+    color: #17201d;
+    background: #f0b85a;
+    border-radius: 50%;
+    font-family: "Cascadia Code", Consolas, monospace;
+    font-size: 0.67rem;
+}
+
+.pending-reply-panel {
+    margin-bottom: 12px;
+    padding: 12px;
+    background: #f3f7f5;
+    border-left: 3px solid #d87931;
+}
+
+.pending-reply-panel p,
+.pending-reply-panel small {
+    display: block;
+    margin: 8px 0 0;
+    color: #65736e;
+    font-size: 0.7rem;
+    line-height: 1.45;
+}
+
+.favorite-picker,
+.favorite-create {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.compact-button {
+    min-height: 38px;
+    padding: 7px 10px;
+    font-size: 0.74rem;
+}
+
 .message-editor textarea {
-    min-height: 390px;
+    min-height: 270px;
     resize: vertical;
     padding: 14px;
     font-family: "Cascadia Code", Consolas, monospace;
@@ -384,6 +456,27 @@ textarea:disabled {
     display: flex;
     flex-direction: column;
     background: #f8faf9;
+}
+
+.activity-filters {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.export-toolbar {
+    display: grid;
+    grid-template-columns: minmax(150px, 1fr) auto auto;
+    align-items: end;
+    gap: 8px;
+}
+
+.export-boundary {
+    margin: 9px 0 12px;
+    color: #6c7974;
+    font-size: 0.68rem;
+    line-height: 1.45;
 }
 
 .activity-feed {
@@ -549,7 +642,7 @@ textarea:disabled {
     }
 
     .message-editor textarea {
-        min-height: 320px;
+        min-height: 260px;
     }
 
     .activity-feed ol {
@@ -557,6 +650,10 @@ textarea:disabled {
     }
 
     .button {
+        min-height: 44px;
+    }
+
+    .compact-button {
         min-height: 44px;
     }
 }
@@ -572,5 +669,18 @@ textarea:disabled {
 
     .message-actions .button {
         flex: 1 1 100%;
+    }
+
+    .favorite-picker,
+    .favorite-create,
+    .activity-filters,
+    .export-toolbar {
+        grid-template-columns: 1fr;
+    }
+
+    .favorite-picker .button,
+    .favorite-create .button,
+    .export-toolbar .button {
+        width: 100%;
     }
 }

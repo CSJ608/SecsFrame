@@ -10,6 +10,7 @@
     <Project Path="src/SecsFrame/SecsFrame.csproj" />
   </Folder>
   <Folder Name="/test/">
+    <Project Path="test/SecsFrame.Demo.Tests/SecsFrame.Demo.Tests.csproj" />
     <Project Path="test/SecsFrame.Secs4NetInterop.Tests/SecsFrame.Secs4NetInterop.Tests.csproj" />
     <Project Path="test/SecsFrame.Soak/SecsFrame.Soak.csproj" />
     <Project Path="test/SecsFrame.Tests/SecsFrame.Tests.csproj" />

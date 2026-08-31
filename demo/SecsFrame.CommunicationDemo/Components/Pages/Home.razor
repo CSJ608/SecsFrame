@@ -1,6 +1,7 @@
 @page "/"
 @implements IDisposable
 @inject CommunicationWorkspace Workspace
+@inject IJSRuntime JavaScript
 
 <PageTitle>SecsFrame 通讯测试工具</PageTitle>
 
@@ -122,18 +123,94 @@
                 <span class="editor-status">@EditorStatus</span>
             </div>
 
-            <label class="field template-field">
-                <span>消息样例</span>
-                <select value="@_selectedTemplate" @onchange="SelectTemplate">
-                    @foreach (var template in MessageTemplate.All)
+            <div class="mode-switch" role="tablist" aria-label="消息操作模式">
+                <button type="button"
+                        role="tab"
+                        aria-selected="@(!_replyMode)"
+                        class="@(!_replyMode ? "is-active" : null)"
+                        @onclick="UsePrimaryMode">发送 Primary</button>
+                <button type="button"
+                        role="tab"
+                        aria-selected="@_replyMode"
+                        class="@(_replyMode ? "is-active" : null)"
+                        disabled="@(Workspace.PendingReplies.Count == 0)"
+                        @onclick="UseReplyMode">
+                    回复 Secondary
+                    @if (Workspace.PendingReplies.Count > 0)
                     {
-                        <option value="@template.Id">@template.Name</option>
+                        <span>@Workspace.PendingReplies.Count</span>
                     }
-                </select>
-            </label>
+                </button>
+            </div>
+
+            @if (_replyMode && SelectedPendingReply is { } pending)
+            {
+                <div class="pending-reply-panel">
+                    <label class="field">
+                        <span>待回复事务</span>
+                        <select value="@_selectedPendingReplyId"
+                                @onchange="SelectPendingReply">
+                            @foreach (var item in Workspace.PendingReplies)
+                            {
+                                <option value="@item.Id">@FormatPendingReply(item)</option>
+                            }
+                        </select>
+                    </label>
+                    <p>
+                        Session @pending.SessionId ·
+                        @pending.ReceivedAt.ToString("HH:mm:ss.fff")
+                    </p>
+                    <small>
+                        初始草稿沿用回环规则生成；发送前按目标设备 Profile 核对。
+                    </small>
+                </div>
+            }
+            else
+            {
+                <label class="field template-field">
+                    <span>消息样例</span>
+                    <select value="@_selectedTemplate" @onchange="SelectTemplate">
+                        @foreach (var template in MessageTemplate.All)
+                        {
+                            <option value="@template.Id">@template.Name</option>
+                        }
+                    </select>
+                </label>
+
+                <div class="favorite-picker">
+                    <label class="field">
+                        <span>会话内收藏</span>
+                        <select value="@_selectedFavoriteId"
+                                disabled="@(Workspace.Favorites.Count == 0)"
+                                @onchange="SelectFavorite">
+                            <option value="">选择收藏</option>
+                            @foreach (var favorite in Workspace.Favorites)
+                            {
+                                <option value="@favorite.Id">@favorite.Name</option>
+                            }
+                        </select>
+                    </label>
+                    <button type="button"
+                            class="button button-secondary compact-button"
+                            disabled="@string.IsNullOrEmpty(_selectedFavoriteId)"
+                            @onclick="RemoveFavorite">删除</button>
+                </div>
+
+                <div class="favorite-create">
+                    <label class="field">
+                        <span>收藏名称</span>
+                        <input maxlength="80"
+                               @bind="_favoriteName"
+                               placeholder="例如：设备状态查询" />
+                    </label>
+                    <button type="button"
+                            class="button button-secondary compact-button"
+                            @onclick="AddFavorite">收藏当前消息</button>
+                </div>
+            }
 
             <label class="field message-editor">
-                <span>SML</span>
+                <span>@(_replyMode ? "Secondary SML" : "Primary SML")</span>
                 <textarea @bind="_sml"
                           spellcheck="false"
                           aria-label="SML 消息编辑器"></textarea>
@@ -145,18 +222,35 @@
             }
 
             <div class="message-actions">
-                <button type="button"
-                        class="button button-primary"
-                        disabled="@(!CanOperate)"
-                        @onclick="SendAsync">发送</button>
-                <button type="button"
-                        class="button button-secondary"
-                        disabled="@(!CanOperate)"
-                        @onclick="LinktestAsync">Linktest</button>
-                <button type="button"
-                        class="button button-secondary"
-                        disabled="@(!CanOperate)"
-                        @onclick="SeparateAsync">Separate</button>
+                @if (_replyMode)
+                {
+                    <button type="button"
+                            class="button button-primary"
+                            disabled="@(!CanReply)"
+                            @onclick="ReplyAsync">回复</button>
+                }
+                else
+                {
+                    <button type="button"
+                            class="button button-primary"
+                            disabled="@(!CanOperate)"
+                            @onclick="SendAsync">发送</button>
+                    @if (Workspace.IsLoopbackPeerActive)
+                    {
+                        <button type="button"
+                                class="button button-secondary"
+                                disabled="@(!CanOperate || Workspace.IsLoopbackIncomingPending)"
+                                @onclick="QueueLoopbackPrimary">模拟入站</button>
+                    }
+                    <button type="button"
+                            class="button button-secondary"
+                            disabled="@(!CanOperate)"
+                            @onclick="LinktestAsync">Linktest</button>
+                    <button type="button"
+                            class="button button-secondary"
+                            disabled="@(!CanOperate)"
+                            @onclick="SeparateAsync">Separate</button>
+                }
             </div>
         </section>
 
@@ -166,11 +260,70 @@
                     <span class="step-label">03</span>
                     <h2>活动与诊断</h2>
                 </div>
+                <span class="editor-status">
+                    @FilteredActivities.Count / @Workspace.Activities.Count
+                </span>
+            </div>
+
+            <div class="activity-filters">
+                <label class="field field-wide">
+                    <span>关键词</span>
+                    <input type="search"
+                           @bind="_activitySearch"
+                           @bind:event="oninput"
+                           placeholder="标题、摘要或详情" />
+                </label>
+                <label class="field">
+                    <span>类别</span>
+                    <select @bind="_activityCategory">
+                        <option value="">全部</option>
+                        @foreach (var category in ActivityCategories)
+                        {
+                            <option value="@category">@category</option>
+                        }
+                    </select>
+                </label>
+                <label class="field">
+                    <span>级别</span>
+                    <select @bind="_activityTone">
+                        <option value="">全部</option>
+                        @foreach (var tone in Enum.GetValues<ActivityEntryTone>())
+                        {
+                            <option value="@tone">@tone</option>
+                        }
+                    </select>
+                </label>
+            </div>
+
+            <div class="export-toolbar">
+                <label class="field">
+                    <span>导出分级</span>
+                    <select @bind="_exportClassification">
+                        <option value="@ActivityExportClassification.MetadataOnly">
+                            MetadataOnly
+                        </option>
+                        <option value="@ActivityExportClassification.RedactedContent">
+                            RedactedContent
+                        </option>
+                    </select>
+                </label>
+                <button type="button"
+                        class="button button-secondary compact-button"
+                        disabled="@(FilteredActivities.Count == 0)"
+                        @onclick="ExportAsync">导出筛选结果</button>
                 <button type="button"
                         class="text-button"
                         disabled="@(Workspace.Activities.Count == 0)"
                         @onclick="Workspace.ClearActivities">清空</button>
             </div>
+            <p class="export-boundary">
+                MetadataOnly 不含摘要和详情；RedactedContent 仍含端点与事务标识，
+                但所有 SECS-II Body 会整体替换。
+            </p>
+            @if (!string.IsNullOrEmpty(_exportError))
+            {
+                <p class="operation-error" role="alert">@_exportError</p>
+            }
 
             <div class="activity-feed" aria-live="polite">
                 @if (Workspace.Activities.Count == 0)
@@ -180,10 +333,17 @@
                         <span>连接状态、消息和诊断将在这里出现</span>
                     </div>
                 }
+                else if (FilteredActivities.Count == 0)
+                {
+                    <div class="empty-state">
+                        <strong>无匹配活动</strong>
+                        <span>调整关键词、类别或级别</span>
+                    </div>
+                }
                 else
                 {
                     <ol>
-                        @foreach (var entry in Workspace.Activities)
+                        @foreach (var entry in FilteredActivities)
                         {
                             <li class="activity-item tone-@entry.Tone.ToString().ToLowerInvariant()"
                                 @key="entry.Id">
@@ -212,19 +372,58 @@
 @code {
     private readonly ConnectionDraft _draft = new();
     private string _selectedTemplate = MessageTemplate.All[0].Id;
+    private string _selectedFavoriteId = string.Empty;
+    private string _favoriteName = string.Empty;
     private string _sml = MessageTemplate.All[0].Sml;
+    private string _activitySearch = string.Empty;
+    private string _activityCategory = string.Empty;
+    private string _activityTone = string.Empty;
     private string? _operationError;
+    private string? _exportError;
+    private long _selectedPendingReplyId;
+    private int _knownPendingReplyCount;
+    private bool _replyMode;
+    private ActivityExportClassification _exportClassification =
+        ActivityExportClassification.MetadataOnly;
 
     private bool CanOperate =>
         Workspace.State == HsmsSessionState.Selected &&
         !Workspace.IsBusy;
 
-    private string EditorStatus => Workspace.State == HsmsSessionState.Selected
-        ? "可发送"
-        : "等待 Selected";
+    private bool CanReply =>
+        CanOperate &&
+        _replyMode &&
+        SelectedPendingReply is not null;
+
+    private PendingReply? SelectedPendingReply =>
+        Workspace.PendingReplies.FirstOrDefault(
+            item => item.Id == _selectedPendingReplyId);
+
+    private string EditorStatus => _replyMode
+        ? SelectedPendingReply is { } pending
+            ? $"待回复 #{pending.Id}"
+            : "无待回复"
+        : Workspace.State == HsmsSessionState.Selected
+            ? "可发送"
+            : "等待 Selected";
+
+    private IReadOnlyList<string> ActivityCategories =>
+        Workspace.Activities
+            .Select(item => item.Category)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(item => item, StringComparer.Ordinal)
+            .ToArray();
+
+    private IReadOnlyList<ActivityEntry> FilteredActivities =>
+        Workspace.Activities
+            .Where(MatchesActivityFilter)
+            .ToArray();
 
     protected override void OnInitialized()
-        => Workspace.Changed += HandleWorkspaceChanged;
+    {
+        Workspace.Changed += HandleWorkspaceChanged;
+        SynchronizePendingReplies();
+    }
 
     public void Dispose()
         => Workspace.Changed -= HandleWorkspaceChanged;
@@ -238,21 +437,163 @@
     private async Task SendAsync()
         => await RunUiOperationAsync(() => Workspace.SendAsync(_sml));
 
+    private async Task ReplyAsync()
+    {
+        var pendingReplyId = _selectedPendingReplyId;
+        await RunUiOperationAsync(
+            () => Workspace.ReplyAsync(pendingReplyId, _sml));
+        SynchronizePendingReplies();
+    }
+
     private async Task LinktestAsync()
         => await RunUiOperationAsync(Workspace.LinktestAsync);
 
     private async Task SeparateAsync()
         => await RunUiOperationAsync(Workspace.SeparateAsync);
 
+    private void QueueLoopbackPrimary()
+        => RunUiAction(Workspace.QueueLoopbackPrimary);
+
+    private void UsePrimaryMode()
+    {
+        _replyMode = false;
+        LoadSelectedTemplate();
+    }
+
+    private void UseReplyMode()
+    {
+        _replyMode = true;
+        LoadSelectedPendingReply();
+    }
+
     private void SelectTemplate(ChangeEventArgs args)
     {
         _selectedTemplate = args.Value?.ToString() ??
             MessageTemplate.All[0].Id;
+        _replyMode = false;
+        LoadSelectedTemplate();
+    }
+
+    private void LoadSelectedTemplate()
+    {
         var template = MessageTemplate.All
             .Single(item => item.Id == _selectedTemplate);
         _sml = template.Sml;
         _operationError = null;
     }
+
+    private void SelectPendingReply(ChangeEventArgs args)
+    {
+        if (long.TryParse(args.Value?.ToString(), out var id))
+            _selectedPendingReplyId = id;
+        LoadSelectedPendingReply();
+    }
+
+    private void LoadSelectedPendingReply()
+    {
+        var pending = SelectedPendingReply ??
+            Workspace.PendingReplies.FirstOrDefault();
+        if (pending is null)
+        {
+            _replyMode = false;
+            return;
+        }
+
+        _selectedPendingReplyId = pending.Id;
+        _sml = pending.SuggestedSecondarySml;
+        _operationError = null;
+    }
+
+    private void SelectFavorite(ChangeEventArgs args)
+    {
+        _selectedFavoriteId = args.Value?.ToString() ?? string.Empty;
+        if (!long.TryParse(_selectedFavoriteId, out var favoriteId))
+            return;
+
+        var favorite = Workspace.Favorites
+            .Single(item => item.Id == favoriteId);
+        _sml = favorite.Sml;
+        _replyMode = false;
+        _operationError = null;
+    }
+
+    private void AddFavorite()
+        => RunUiAction(() =>
+        {
+            var favorite = Workspace.AddFavorite(_favoriteName, _sml);
+            _selectedFavoriteId = favorite.Id.ToString();
+            _favoriteName = string.Empty;
+        });
+
+    private void RemoveFavorite()
+        => RunUiAction(() =>
+        {
+            if (!long.TryParse(_selectedFavoriteId, out var favoriteId))
+                return;
+            Workspace.RemoveFavorite(favoriteId);
+            _selectedFavoriteId = string.Empty;
+        });
+
+    private async Task ExportAsync()
+    {
+        _exportError = null;
+        try
+        {
+            var content = ActivityExportBuilder.Build(
+                FilteredActivities,
+                _exportClassification);
+            var fileName =
+                $"secsframe-activity-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}.json";
+            await JavaScript.InvokeVoidAsync(
+                "secsFrame.downloadText",
+                fileName,
+                content,
+                "application/json;charset=utf-8");
+        }
+        catch (Exception error)
+        {
+            _exportError = error.Message;
+        }
+    }
+
+    private bool MatchesActivityFilter(ActivityEntry entry)
+    {
+        if (!string.IsNullOrEmpty(_activityCategory) &&
+            !string.Equals(
+                entry.Category,
+                _activityCategory,
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrEmpty(_activityTone) &&
+            !string.Equals(
+                entry.Tone.ToString(),
+                _activityTone,
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(_activitySearch))
+            return true;
+
+        var search = _activitySearch.Trim();
+        return Contains(entry.Category, search) ||
+            Contains(entry.Title, search) ||
+            Contains(entry.Summary, search) ||
+            Contains(entry.Detail, search);
+    }
+
+    private static bool Contains(string? value, string search)
+        => value?.Contains(
+            search,
+            StringComparison.CurrentCultureIgnoreCase) == true;
+
+    private static string FormatPendingReply(PendingReply item)
+        => $"#{item.Id} S{item.Stream}F{item.Function} / " +
+            $"0x{item.SystemBytes:X8}";
 
     private async Task RunUiOperationAsync(Func<Task> operation)
     {
@@ -267,6 +608,57 @@
         }
     }
 
+    private void RunUiAction(Action operation)
+    {
+        _operationError = null;
+        try
+        {
+            operation();
+        }
+        catch (Exception error)
+        {
+            _operationError = error.Message;
+        }
+    }
+
+    private void SynchronizePendingReplies()
+    {
+        var pending = Workspace.PendingReplies;
+        if (pending.Count == 0)
+        {
+            var hadPendingReplies = _knownPendingReplyCount > 0;
+            _replyMode = false;
+            _selectedPendingReplyId = 0;
+            _knownPendingReplyCount = 0;
+            if (hadPendingReplies)
+                LoadSelectedTemplate();
+            return;
+        }
+
+        var selectionChanged = false;
+        if (pending.All(item => item.Id != _selectedPendingReplyId))
+        {
+            _selectedPendingReplyId = pending[0].Id;
+            selectionChanged = true;
+        }
+
+        if (pending.Count > _knownPendingReplyCount)
+        {
+            _replyMode = true;
+            _selectedPendingReplyId = pending[^1].Id;
+            LoadSelectedPendingReply();
+        }
+        else if (selectionChanged && _replyMode)
+        {
+            LoadSelectedPendingReply();
+        }
+        _knownPendingReplyCount = pending.Count;
+    }
+
     private void HandleWorkspaceChanged(object? sender, EventArgs args)
-        => _ = InvokeAsync(StateHasChanged);
+        => _ = InvokeAsync(() =>
+        {
+            SynchronizePendingReplies();
+            StateHasChanged();
+        });
 }

@@ -5,4 +5,5 @@ internal sealed record GuidedStepResult(
     string Title,
     string Summary,
     IReadOnlyList<DemoEvidence> Evidence,
-    string? Code);
+    string? Code,
+    string CodeLabel = "SML 证据");

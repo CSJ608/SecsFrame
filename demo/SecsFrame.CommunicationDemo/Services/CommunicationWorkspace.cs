@@ -10,6 +10,10 @@ internal sealed class CommunicationWorkspace : IAsyncDisposable
     private readonly SemaphoreSlim _operationGate = new(1, 1);
     private readonly object _activityGate = new();
     private readonly List<ActivityEntry> _activities = new();
+    private readonly List<PendingReply> _pendingReplies = new();
+    private readonly Dictionary<long, HsmsIncomingDataMessage> _replyTokens =
+        new();
+    private readonly List<MessageFavorite> _favorites = new();
     private readonly SmlMessageCodec _sml = new(
         maxNestingDepth: 32,
         maxItemCount: 10_000,
@@ -20,6 +24,9 @@ internal sealed class CommunicationWorkspace : IAsyncDisposable
     private DemoLoopbackPeer? _loopbackPeer;
     private Task? _eventPump;
     private long _nextActivityId;
+    private long _nextPendingReplyId;
+    private long _nextFavoriteId;
+    private int _loopbackIncomingInFlight;
     private int _disposed;
 
     public event EventHandler? Changed;
@@ -31,6 +38,11 @@ internal sealed class CommunicationWorkspace : IAsyncDisposable
 
     public bool IsConnected => _connection is not null;
 
+    public bool IsLoopbackPeerActive => _loopbackPeer is not null;
+
+    public bool IsLoopbackIncomingPending =>
+        Volatile.Read(ref _loopbackIncomingInFlight) != 0;
+
     public string Endpoint { get; private set; } = "未配置";
 
     public IReadOnlyList<ActivityEntry> Activities
@@ -39,6 +51,24 @@ internal sealed class CommunicationWorkspace : IAsyncDisposable
         {
             lock (_activityGate)
                 return _activities.ToArray();
+        }
+    }
+
+    public IReadOnlyList<PendingReply> PendingReplies
+    {
+        get
+        {
+            lock (_activityGate)
+                return _pendingReplies.ToArray();
+        }
+    }
+
+    public IReadOnlyList<MessageFavorite> Favorites
+    {
+        get
+        {
+            lock (_activityGate)
+                return _favorites.ToArray();
         }
     }
 
@@ -101,6 +131,141 @@ internal sealed class CommunicationWorkspace : IAsyncDisposable
             SetBusy(false);
             _operationGate.Release();
         }
+    }
+
+    public async Task ReplyAsync(long pendingReplyId, string text)
+    {
+        ThrowIfDisposed();
+        await _operationGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            SetBusy(true);
+            var connection = RequireConnection();
+            var secondary = _sml.Decode(text);
+            if (secondary.ReplyExpected)
+            {
+                throw new ArgumentException(
+                    "Secondary 消息不能设置 W-Bit。",
+                    nameof(text));
+            }
+
+            HsmsIncomingDataMessage incoming;
+            lock (_activityGate)
+            {
+                if (!_replyTokens.Remove(pendingReplyId, out var found))
+                    throw new InvalidOperationException("待回复消息已失效或已回复。");
+
+                incoming = found;
+                _pendingReplies.RemoveAll(
+                    item => item.Id == pendingReplyId);
+            }
+            NotifyChanged();
+
+            AddActivity(
+                ActivityEntryTone.Neutral,
+                "回复",
+                $"回复 S{secondary.Stream}F{secondary.Function}",
+                $"待回复 #{pendingReplyId}",
+                _sml.Encode(secondary),
+                ActivityDetailKind.ProtocolMessage);
+            await connection.ReplyAsync(incoming, secondary)
+                .ConfigureAwait(false);
+            AddActivity(
+                ActivityEntryTone.Success,
+                "回复",
+                "Secondary 写出完成",
+                $"System Bytes 0x{incoming.DataMessage.SystemBytes:X8}",
+                null);
+        }
+        catch (Exception error)
+        {
+            AddFailure("回复失败", error);
+            throw;
+        }
+        finally
+        {
+            SetBusy(false);
+            _operationGate.Release();
+        }
+    }
+
+    public MessageFavorite AddFavorite(string name, string text)
+    {
+        ThrowIfDisposed();
+        if (string.IsNullOrWhiteSpace(name))
+            throw new ArgumentException("请输入收藏名称。", nameof(name));
+
+        var normalizedName = name.Trim();
+        if (normalizedName.Length > 80)
+            throw new ArgumentException("收藏名称不能超过 80 个字符。", nameof(name));
+
+        var normalizedSml = _sml.Encode(_sml.Decode(text));
+        MessageFavorite favorite;
+        lock (_activityGate)
+        {
+            if (_favorites.Any(
+                    item => string.Equals(
+                        item.Name,
+                        normalizedName,
+                        StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new InvalidOperationException("已存在同名收藏。");
+            }
+
+            favorite = new MessageFavorite(
+                Interlocked.Increment(ref _nextFavoriteId),
+                normalizedName,
+                normalizedSml);
+            _favorites.Add(favorite);
+        }
+        NotifyChanged();
+        return favorite;
+    }
+
+    public void RemoveFavorite(long favoriteId)
+    {
+        ThrowIfDisposed();
+        lock (_activityGate)
+            _favorites.RemoveAll(item => item.Id == favoriteId);
+        NotifyChanged();
+    }
+
+    public void QueueLoopbackPrimary()
+    {
+        ThrowIfDisposed();
+        var peer = _loopbackPeer ??
+            throw new InvalidOperationException("本机回环端未启用。");
+        var cancellation = _sessionCancellation ??
+            throw new InvalidOperationException("当前连接尚未启动。");
+        if (State != HsmsSessionState.Selected)
+            throw new InvalidOperationException("入站模拟需要 Selected 会话。");
+        if (Interlocked.CompareExchange(
+                ref _loopbackIncomingInFlight,
+                1,
+                0) != 0)
+        {
+            throw new InvalidOperationException("已有一条回环入站消息等待回复。");
+        }
+
+        var primary = new SecsMessage(
+            1,
+            1,
+            replyExpected: true,
+            rootItem: SecsItem.List(
+                SecsItem.Ascii("REPLY-DEMO"),
+                SecsItem.U4(42)));
+        AddActivity(
+            ActivityEntryTone.Neutral,
+            "回环端",
+            "发送模拟入站 S1F1 W",
+            "等待通讯工具显式回复",
+            _sml.Encode(primary),
+            ActivityDetailKind.ProtocolMessage);
+        _ = ObserveLoopbackPrimaryAsync(
+            peer,
+            primary,
+            cancellation.Token);
+        NotifyChanged();
     }
 
     public Task LinktestAsync()
@@ -193,7 +358,8 @@ internal sealed class CommunicationWorkspace : IAsyncDisposable
             "本机回环端已启动",
             $"127.0.0.1:{draft.Port}",
             "回环端仅用于工程演示：收到 W-Bit 消息后返回同一 Body，" +
-            "Function 加一；这不是设备消息 Profile。");
+            "Function 加一；这不是设备消息 Profile。",
+            ActivityDetailKind.BoundaryNote);
     }
 
     private async Task SendCoreAsync(string text)
@@ -206,7 +372,8 @@ internal sealed class CommunicationWorkspace : IAsyncDisposable
             $"发送 S{message.Stream}F{message.Function}" +
                 (message.ReplyExpected ? " W" : string.Empty),
             message.ReplyExpected ? "等待 Secondary" : "写出后完成",
-            _sml.Encode(message));
+            _sml.Encode(message),
+            ActivityDetailKind.ProtocolMessage);
 
         var secondary = await connection.SendAsync(message)
             .ConfigureAwait(false);
@@ -227,7 +394,8 @@ internal sealed class CommunicationWorkspace : IAsyncDisposable
             $"收到 S{secondary.Message.Stream}F" +
                 $"{secondary.Message.Function}",
             $"System Bytes 0x{secondary.SystemBytes:X8}",
-            _sml.Encode(secondary.Message));
+            _sml.Encode(secondary.Message),
+            ActivityDetailKind.ProtocolMessage);
     }
 
     private async Task RunControlAsync(
@@ -295,10 +463,12 @@ internal sealed class CommunicationWorkspace : IAsyncDisposable
         switch (item.Kind)
         {
             case HsmsConnectionEventKind.StateChanged:
+                if (item.State != HsmsSessionState.Selected)
+                    ClearPendingReplies();
                 AddStateActivity(item);
                 break;
             case HsmsConnectionEventKind.DataMessageReceived:
-                AddIncomingActivity(item.IncomingMessage!.DataMessage);
+                AddIncomingActivity(item.IncomingMessage!);
                 break;
             case HsmsConnectionEventKind.ControlMessageReceived:
                 AddActivity(
@@ -316,7 +486,8 @@ internal sealed class CommunicationWorkspace : IAsyncDisposable
                     item.Diagnostic?.Code.ToString() ??
                         item.Error?.GetType().Name ??
                         "未知错误",
-                    FormatDiagnostic(item.Diagnostic));
+                    FormatDiagnostic(item.Diagnostic),
+                    ActivityDetailKind.DiagnosticMetadata);
                 break;
             default:
                 throw new ArgumentOutOfRangeException(
@@ -336,17 +507,52 @@ internal sealed class CommunicationWorkspace : IAsyncDisposable
             item.Diagnostic?.Code.ToString() ??
                 item.Error?.GetType().Name ??
                 "正常转换",
-            FormatDiagnostic(item.Diagnostic));
+            FormatDiagnostic(item.Diagnostic),
+            ActivityDetailKind.DiagnosticMetadata);
 
-    private void AddIncomingActivity(HsmsDataMessage incoming)
-        => AddActivity(
+    private void AddIncomingActivity(HsmsIncomingDataMessage incoming)
+    {
+        var dataMessage = incoming.DataMessage;
+        long? pendingReplyId = null;
+        if (incoming.ReplyExpected)
+        {
+            pendingReplyId = Interlocked.Increment(ref _nextPendingReplyId);
+            var primary = dataMessage.Message;
+            var function = primary.Function == byte.MaxValue
+                ? primary.Function
+                : (byte)(primary.Function + 1);
+            var suggestedSecondary = new SecsMessage(
+                primary.Stream,
+                function,
+                rootItem: primary.RootItem);
+            var pending = new PendingReply(
+                pendingReplyId.Value,
+                DateTimeOffset.Now,
+                dataMessage.SessionId,
+                dataMessage.SystemBytes,
+                primary.Stream,
+                primary.Function,
+                _sml.Encode(suggestedSecondary));
+            lock (_activityGate)
+            {
+                _pendingReplies.Add(pending);
+                _replyTokens.Add(pending.Id, incoming);
+            }
+        }
+
+        AddActivity(
             ActivityEntryTone.Success,
             "接收",
-            $"收到 S{incoming.Message.Stream}F" +
-                $"{incoming.Message.Function}" +
-                (incoming.Message.ReplyExpected ? " W" : string.Empty),
-            $"System Bytes 0x{incoming.SystemBytes:X8}",
-            _sml.Encode(incoming.Message));
+            $"收到 S{dataMessage.Message.Stream}F" +
+                $"{dataMessage.Message.Function}" +
+                (dataMessage.Message.ReplyExpected ? " W" : string.Empty),
+            pendingReplyId is null
+                ? $"System Bytes 0x{dataMessage.SystemBytes:X8}"
+                : $"待回复 #{pendingReplyId} / System Bytes " +
+                    $"0x{dataMessage.SystemBytes:X8}",
+            _sml.Encode(dataMessage.Message),
+            ActivityDetailKind.ProtocolMessage);
+    }
 
     private async Task DisconnectCoreAsync(bool addActivity)
     {
@@ -361,6 +567,7 @@ internal sealed class CommunicationWorkspace : IAsyncDisposable
         _eventPump = null;
         Endpoint = "未配置";
         State = HsmsSessionState.Disconnected;
+        ClearPendingReplies();
 
         cancellation?.Cancel();
         if (connection is not null)
@@ -372,6 +579,7 @@ internal sealed class CommunicationWorkspace : IAsyncDisposable
         }
         await ObserveCompletionAsync(eventPump).ConfigureAwait(false);
         cancellation?.Dispose();
+        Interlocked.Exchange(ref _loopbackIncomingInFlight, 0);
 
         if (addActivity)
         {
@@ -412,6 +620,50 @@ internal sealed class CommunicationWorkspace : IAsyncDisposable
         LoopbackPeerFailedEventArgs args)
         => AddFailure("回环端停止", args.Error);
 
+    private async Task ObserveLoopbackPrimaryAsync(
+        DemoLoopbackPeer peer,
+        SecsMessage primary,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var secondary = await peer.SendAsync(primary, cancellationToken)
+                .ConfigureAwait(false) ??
+                throw new InvalidOperationException(
+                    "回环入站 Primary 未获得 Secondary。");
+            AddActivity(
+                ActivityEntryTone.Success,
+                "回环端",
+                "收到通讯工具回复",
+                $"S{secondary.Message.Stream}F{secondary.Message.Function} / " +
+                    $"System Bytes 0x{secondary.SystemBytes:X8}",
+                _sml.Encode(secondary.Message),
+                ActivityDetailKind.ProtocolMessage);
+        }
+        catch (OperationCanceledException)
+            when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception error)
+        {
+            AddFailure("回环入站事务失败", error);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _loopbackIncomingInFlight, 0);
+            NotifyChanged();
+        }
+    }
+
+    private void ClearPendingReplies()
+    {
+        lock (_activityGate)
+        {
+            _pendingReplies.Clear();
+            _replyTokens.Clear();
+        }
+    }
+
     private void AddFailure(string title, Exception error)
     {
         var diagnostic = HsmsDiagnostic.Classify(error, State);
@@ -420,7 +672,10 @@ internal sealed class CommunicationWorkspace : IAsyncDisposable
             "诊断",
             title,
             diagnostic?.Code.ToString() ?? error.GetType().Name,
-            FormatDiagnostic(diagnostic) ?? error.Message);
+            FormatDiagnostic(diagnostic) ?? error.Message,
+            diagnostic is null
+                ? ActivityDetailKind.None
+                : ActivityDetailKind.DiagnosticMetadata);
     }
 
     private void AddActivity(
@@ -428,7 +683,8 @@ internal sealed class CommunicationWorkspace : IAsyncDisposable
         string category,
         string title,
         string summary,
-        string? detail)
+        string? detail,
+        ActivityDetailKind detailKind = ActivityDetailKind.None)
     {
         var entry = new ActivityEntry(
             Interlocked.Increment(ref _nextActivityId),
@@ -437,7 +693,8 @@ internal sealed class CommunicationWorkspace : IAsyncDisposable
             category,
             title,
             summary,
-            detail);
+            detail,
+            detailKind);
         lock (_activityGate)
         {
             _activities.Insert(0, entry);

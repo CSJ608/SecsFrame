@@ -26,6 +26,18 @@
 
 ### 新增
 
+- 通讯工具增加入站 W-Bit Primary 的显式 Secondary 编辑与回复、会话内消息
+  收藏，以及可生成真实入站事务的本机回环自测入口；待回复令牌随会话失效，
+  收藏不写浏览器持久存储或服务器文件。
+- 通讯工具活动流增加关键词、类别和级别筛选，并提供
+  <code>MetadataOnly</code> 与 <code>RedactedContent</code> 两级浏览器端
+  JSON 下载；默认不含摘要/详情，显式内容导出把全部 SECS-II 根 Item 替换
+  为 <code>REDACTED</code>，且不提供 Raw 导出。
+- 分步演示从五步扩展为九步，新增真实 GEM 工程 profile 通讯建立、运行期
+  状态变量读取、结构化 Item 路径脱敏 Trace，以及由真实未回复事务产生的
+  T3 受限诊断 Trace；所有场景复用现有公共 API。
+- 增加独立 net8 Demo 测试项目，覆盖导出数据分级、会话内收藏、真实回环
+  入站回复和完整九步脚本。
 - 增加本机 <code>SecsFrame.CommunicationDemo</code> 通讯测试工具，提供
   Active/Passive 显式连接配置、真实 TCP 回环、严格 SML 编辑与样例、
   数据/控制消息操作，以及最多 500 条的会话内活动和结构化诊断视图。

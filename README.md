@@ -142,7 +142,9 @@ dotnet run --project demo/SecsFrame.GuidedDemo/SecsFrame.GuidedDemo.csproj
 
 两个 Demo 均为本机 Interactive Server 应用。默认分别使用
 <http://localhost:5080> 与 <http://localhost:5081>；工程回环和固定脚本
-不代表设备消息 Profile、标准合规或生产就绪。
+不代表设备消息 Profile、标准合规或生产就绪。通讯工具支持真实入站回复、
+会话内收藏和无 Raw 选项的分级活动导出；分步演示以九个固定动作覆盖 HSMS、
+GEM 工程基础、结构化脱敏 Trace 与真实 T3 诊断。
 
 ## 许可证
 

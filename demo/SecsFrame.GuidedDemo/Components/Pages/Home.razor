@@ -97,8 +97,8 @@
                 {
                     <div class="code-evidence">
                         <div class="code-heading">
-                            <span>SML 证据</span>
-                            <span>确定性调试文本</span>
+                            <span>@current.CodeLabel</span>
+                            <span>实际执行产物</span>
                         </div>
                         <pre>@current.Code</pre>
                     </div>
@@ -107,10 +107,10 @@
             else
             {
                 <div class="ready-surface">
-                    <span class="ready-index">5</span>
+                    <span class="ready-index">9</span>
                     <div>
                         <strong>固定步骤</strong>
-                        <span>真实 TCP、消息、事务、控制与恢复</span>
+                        <span>HSMS、GEM、Trace 与结构化诊断</span>
                     </div>
                 </div>
             }
@@ -171,7 +171,7 @@
 
             <div class="boundary-note">
                 <strong>工程演示边界</strong>
-                <span>固定回环脚本不是设备 Profile 或一致性测试。</span>
+                <span>固定回环与 GEM 工程 profile 不是设备 Profile 或一致性测试。</span>
             </div>
         </aside>
     </main>
@@ -183,7 +183,7 @@
         get
         {
             if (!Session.IsStarted)
-                return "从连接到恢复";
+                return "从连接到受限诊断";
             if (Session.IsComplete)
                 return "演示完成";
             if (Session.IsBusy)
@@ -199,9 +199,9 @@
         get
         {
             if (!Session.IsStarted)
-                return "五个动作依次展示当前核心 HSMS 与动态消息成果。";
+                return "九个动作依次展示 HSMS、动态消息、GEM、Trace 与诊断成果。";
             if (Session.IsComplete)
-                return "五个真实动作均已完成，所有证据保留在本次会话中。";
+                return "九个真实动作均已完成，所有证据保留在本次会话中。";
             if (Session.IsBusy)
                 return Session.Steps[Session.CurrentStepIndex].Focus;
             if (Session.CurrentResult is { } result)

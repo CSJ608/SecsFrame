@@ -1,14 +1,18 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
+using SecsFrame.Gem;
 using SecsFrame.GuidedDemo.Models;
 using SecsFrame.Sml;
+using SecsFrame.Trace;
 
 namespace SecsFrame.GuidedDemo.Services;
 
 internal sealed class GuidedDemoSession : IAsyncDisposable
 {
     private const ushort ProtocolSessionId = 10;
+    private const byte DiagnosticStream = 99;
+    private const byte DiagnosticFunction = 1;
     private readonly SemaphoreSlim _operationGate = new(1, 1);
     private readonly object _selectionGate = new();
     private readonly List<GuidedStepResult> _results = new();
@@ -16,11 +20,14 @@ internal sealed class GuidedDemoSession : IAsyncDisposable
     private TaskCompletionSource<long> _nextActiveSelection =
         CreateSelectionSignal();
     private CancellationTokenSource? _sessionCancellation;
-    private HsmsConnection? _active;
-    private HsmsConnection? _passive;
+    private SecsHost? _host;
+    private SecsEquipment? _equipment;
+    private GemHostServices? _hostGem;
+    private GemEquipmentServices? _equipmentGem;
     private Task? _activePump;
     private Task? _passivePump;
     private SecsMessage? _sampleMessage;
+    private SecsTraceRecord? _transactionTrace;
     private long _activeSelectionGeneration;
     private int _disposed;
 
@@ -103,6 +110,7 @@ internal sealed class GuidedDemoSession : IAsyncDisposable
         await DisposePairAsync().ConfigureAwait(false);
         _results.Clear();
         _sampleMessage = null;
+        _transactionTrace = null;
         CurrentStepIndex = -1;
         IsComplete = false;
         Error = null;
@@ -134,6 +142,10 @@ internal sealed class GuidedDemoSession : IAsyncDisposable
             2 => await CompleteTransactionAsync().ConfigureAwait(false),
             3 => await RunLinktestAsync().ConfigureAwait(false),
             4 => await RecoverSessionAsync().ConfigureAwait(false),
+            5 => await EstablishGemCommunicationAsync().ConfigureAwait(false),
+            6 => await ReadDynamicStatusVariableAsync().ConfigureAwait(false),
+            7 => BuildRedactedTrace(),
+            8 => await CaptureT3DiagnosticAsync().ConfigureAwait(false),
             _ => throw new InvalidOperationException(
                 "The guided demo has no action for the current step."),
         };
@@ -147,24 +159,24 @@ internal sealed class GuidedDemoSession : IAsyncDisposable
         var port = GetFreePort();
         var cancellation = new CancellationTokenSource();
         _sessionCancellation = cancellation;
-        _passive = new HsmsConnection(
+        _equipment = new SecsEquipment(
             CreateOptions(port, HsmsConnectionMode.Passive));
-        _active = new HsmsConnection(
+        _host = new SecsHost(
             CreateOptions(port, HsmsConnectionMode.Active));
-        _passive.Start();
+        _equipment.Start();
         _passivePump = PumpPassiveEventsAsync(
-            _passive,
+            _equipment,
             cancellation.Token);
-        _active.Start();
+        _host.Start();
         _activePump = PumpActiveEventsAsync(
-            _active,
+            _host,
             cancellation.Token);
 
         using var timeout = CancellationTokenSource
             .CreateLinkedTokenSource(cancellation.Token);
         timeout.CancelAfter(TimeSpan.FromSeconds(12));
         await Task.WhenAll(
-            _passive.WaitUntilSelectedAsync(timeout.Token),
+            _equipment.WaitUntilSelectedAsync(timeout.Token),
             WaitForActiveSelectionAfterAsync(0, timeout.Token))
             .ConfigureAwait(false);
 
@@ -222,6 +234,12 @@ internal sealed class GuidedDemoSession : IAsyncDisposable
             throw new InvalidOperationException(
                 "演示回环返回的 Item Body 与 Primary 不一致。");
         }
+        _transactionTrace = new SecsTraceRecord(
+            DateTimeOffset.UtcNow,
+            SecsTraceDirection.Sent,
+            primary,
+            ProtocolSessionId,
+            secondary.SystemBytes);
 
         return new GuidedStepResult(
             3,
@@ -294,8 +312,206 @@ internal sealed class GuidedDemoSession : IAsyncDisposable
             null);
     }
 
+    private async Task<GuidedStepResult> EstablishGemCommunicationAsync()
+    {
+        var host = RequireActive();
+        var equipment = _equipment ??
+            throw new InvalidOperationException("Equipment 端点尚未建立。");
+        if (_hostGem is not null || _equipmentGem is not null)
+            throw new InvalidOperationException("GEM 服务已经建立。");
+
+        var equipmentGem = new GemEquipmentServices(
+            equipment,
+            new GemIdentity("DEMO-EQUIPMENT", "1.0"),
+            new DemoClock());
+        var hostGem = new GemHostServices(
+            host,
+            new GemIdentity("DEMO-HOST", "1.0"));
+        _equipmentGem = equipmentGem;
+        _hostGem = hostGem;
+
+        GemIdentity peer;
+        try
+        {
+            peer = await hostGem.EstablishCommunicationAsync()
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            _hostGem = null;
+            _equipmentGem = null;
+            hostGem.Dispose();
+            equipmentGem.Dispose();
+            throw;
+        }
+
+        var pair = hostGem.Profile.EstablishCommunication;
+        return new GuidedStepResult(
+            6,
+            "GEM 通讯已建立",
+            "Host 与 Equipment 通过现有 profile 完成一次身份交换。",
+            new[]
+            {
+                new DemoEvidence(
+                    "消息对",
+                    $"S{pair.Stream}F{pair.PrimaryFunction} / " +
+                        $"S{pair.Stream}F{pair.SecondaryFunction}"),
+                new DemoEvidence("对端型号", peer.Model),
+                new DemoEvidence(
+                    "Host 状态",
+                    hostGem.CommunicationState.ToString()),
+                new DemoEvidence(
+                    "Equipment 状态",
+                    equipmentGem.CommunicationState.ToString()),
+            },
+            null);
+    }
+
+    private async Task<GuidedStepResult> ReadDynamicStatusVariableAsync()
+    {
+        var hostGem = _hostGem ??
+            throw new InvalidOperationException("Host GEM 服务尚未建立。");
+        var equipmentGem = _equipmentGem ??
+            throw new InvalidOperationException("Equipment GEM 服务尚未建立。");
+        var identifier = SecsItem.U4(1001);
+        var providerReads = 0;
+        using var registration = equipmentGem.RegisterStatusVariable(
+            identifier,
+            cancellationToken =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                Interlocked.Increment(ref providerReads);
+                return ValueTask.FromResult(SecsItem.U4(73));
+            });
+
+        var values = await hostGem.ReadStatusVariablesAsync(
+            new[] { identifier }).ConfigureAwait(false);
+        if (values.Count != 1 || !values[0].Equals(SecsItem.U4(73)))
+            throw new InvalidOperationException("动态状态变量值未按请求返回。");
+
+        var pair = hostGem.Profile.ReadStatusVariables;
+        var resultMessage = new SecsMessage(
+            pair.Stream,
+            pair.SecondaryFunction,
+            rootItem: SecsItem.List(values));
+        return new GuidedStepResult(
+            7,
+            "动态变量已读取",
+            "Equipment 运行期提供器在真实请求中执行并返回动态 Item。",
+            new[]
+            {
+                new DemoEvidence("SVID", "U4 1001"),
+                new DemoEvidence("值", "U4 73"),
+                new DemoEvidence(
+                    "提供器执行",
+                    providerReads.ToString(CultureInfo.InvariantCulture) + " 次"),
+                new DemoEvidence(
+                    "消息对",
+                    $"S{pair.Stream}F{pair.PrimaryFunction} / " +
+                        $"S{pair.Stream}F{pair.SecondaryFunction}"),
+            },
+            _sml.Encode(resultMessage),
+            "解码值 SML");
+    }
+
+    private GuidedStepResult BuildRedactedTrace()
+    {
+        var source = _transactionTrace ??
+            throw new InvalidOperationException("真实事务 Trace 源尚未生成。");
+        var redactor = new SecsTraceRedactor(
+            new[]
+            {
+                new SecsTraceRedactionRule(
+                    source.Message.Stream,
+                    source.Message.Function,
+                    new[] { 0 },
+                    SecsItem.Ascii("REDACTED")),
+            });
+        var redacted = redactor.Redact(source);
+        var codec = new SecsTraceCodec();
+        var text = codec.Encode(new[] { redacted });
+        var decoded = codec.Decode(text);
+        if (decoded.Count != 1 ||
+            text.Contains("DEMO-LOT-01", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "脱敏 Trace 未通过严格读取或明文复核。");
+        }
+
+        return new GuidedStepResult(
+            8,
+            "脱敏 Trace 已导出",
+            "Item 路径规则替换敏感值，严格 codec 完成一次往返。",
+            new[]
+            {
+                new DemoEvidence("格式", SecsTraceCodec.FormatIdentifier),
+                new DemoEvidence("规则", "S6F11 / Item [0]"),
+                new DemoEvidence("明文复核", "DEMO-LOT-01 未出现"),
+                new DemoEvidence(
+                    "System Bytes",
+                    $"0x{source.SystemBytes:X8}"),
+            },
+            text,
+            "Trace 证据");
+    }
+
+    private async Task<GuidedStepResult> CaptureT3DiagnosticAsync()
+    {
+        var host = RequireActive();
+        HsmsDiagnostic? diagnostic = null;
+        try
+        {
+            _ = await host.SendAsync(
+                new SecsMessage(
+                    DiagnosticStream,
+                    DiagnosticFunction,
+                    replyExpected: true,
+                    rootItem: SecsItem.Ascii("NO-REPLY")))
+                .ConfigureAwait(false);
+        }
+        catch (Exception error)
+        {
+            diagnostic = HsmsDiagnostic.Classify(error, host.State);
+            if (diagnostic is null)
+                throw;
+        }
+
+        if (diagnostic?.Code != HsmsDiagnosticCode.T3Timeout)
+            throw new InvalidOperationException("预期的 T3 诊断没有出现。");
+
+        var record = SecsTraceDiagnosticRecord.Create(
+            DateTimeOffset.UtcNow,
+            diagnostic);
+        var codec = new SecsTraceDiagnosticCodec();
+        var text = codec.Encode(new[] { record });
+        var decoded = codec.Decode(text);
+        if (decoded.Count != 1 ||
+            decoded[0].Code != HsmsDiagnosticCode.T3Timeout)
+        {
+            throw new InvalidOperationException("诊断 Trace 严格读取失败。");
+        }
+
+        return new GuidedStepResult(
+            9,
+            "T3 诊断已捕获",
+            "未回复事务真实等待 T3，导出只保留稳定诊断标量。",
+            new[]
+            {
+                new DemoEvidence("代码", diagnostic.Code.ToString()),
+                new DemoEvidence("层级", diagnostic.Layer.ToString()),
+                new DemoEvidence("计时器", diagnostic.Timer?.ToString() ?? "-"),
+                new DemoEvidence(
+                    "System Bytes",
+                    diagnostic.SystemBytes is { } systemBytes
+                        ? $"0x{systemBytes:X8}"
+                        : "-"),
+            },
+            text,
+            "诊断 Trace");
+    }
+
     private async Task PumpActiveEventsAsync(
-        HsmsConnection connection,
+        SecsHost connection,
         CancellationToken cancellationToken)
     {
         try
@@ -304,13 +520,21 @@ internal sealed class GuidedDemoSession : IAsyncDisposable
                 .GetEventsAsync(cancellationToken)
                 .ConfigureAwait(false))
             {
-                if (item.Kind != HsmsConnectionEventKind.StateChanged)
-                    continue;
+                if (item.Kind == HsmsConnectionEventKind.StateChanged)
+                {
+                    State = item.State;
+                    if (item.State == HsmsSessionState.Selected)
+                        SignalActiveSelection();
+                    NotifyChanged();
+                }
 
-                State = item.State;
-                if (item.State == HsmsSessionState.Selected)
-                    SignalActiveSelection();
-                NotifyChanged();
+                var gem = _hostGem;
+                if (gem is not null)
+                {
+                    _ = await gem.TryDispatchAsync(
+                        item,
+                        cancellationToken).ConfigureAwait(false);
+                }
             }
         }
         catch (OperationCanceledException)
@@ -325,7 +549,7 @@ internal sealed class GuidedDemoSession : IAsyncDisposable
     }
 
     private async Task PumpPassiveEventsAsync(
-        HsmsConnection connection,
+        SecsEquipment connection,
         CancellationToken cancellationToken)
     {
         try
@@ -334,6 +558,15 @@ internal sealed class GuidedDemoSession : IAsyncDisposable
                 .GetEventsAsync(cancellationToken)
                 .ConfigureAwait(false))
             {
+                var gem = _equipmentGem;
+                if (gem is not null &&
+                    await gem.TryDispatchAsync(
+                        item,
+                        cancellationToken).ConfigureAwait(false))
+                {
+                    continue;
+                }
+
                 if (item.Kind != HsmsConnectionEventKind.DataMessageReceived)
                     continue;
 
@@ -355,7 +588,7 @@ internal sealed class GuidedDemoSession : IAsyncDisposable
     }
 
     private static Task ReplyToPrimaryAsync(
-        HsmsConnection connection,
+        SecsEquipment connection,
         HsmsIncomingDataMessage incoming,
         CancellationToken cancellationToken)
     {
@@ -363,6 +596,12 @@ internal sealed class GuidedDemoSession : IAsyncDisposable
             return Task.CompletedTask;
 
         var primary = incoming.DataMessage.Message;
+        if (primary.Stream == DiagnosticStream &&
+            primary.Function == DiagnosticFunction)
+        {
+            return Task.CompletedTask;
+        }
+
         var function = primary.Function == byte.MaxValue
             ? primary.Function
             : (byte)(primary.Function + 1);
@@ -408,30 +647,36 @@ internal sealed class GuidedDemoSession : IAsyncDisposable
 
     private async Task DisposePairAsync()
     {
-        var active = _active;
-        var passive = _passive;
+        var host = _host;
+        var equipment = _equipment;
+        var hostGem = _hostGem;
+        var equipmentGem = _equipmentGem;
         var cancellation = _sessionCancellation;
         var activePump = _activePump;
         var passivePump = _passivePump;
-        _active = null;
-        _passive = null;
+        _host = null;
+        _equipment = null;
+        _hostGem = null;
+        _equipmentGem = null;
         _sessionCancellation = null;
         _activePump = null;
         _passivePump = null;
 
+        hostGem?.Dispose();
+        equipmentGem?.Dispose();
         cancellation?.Cancel();
-        if (active is not null)
-            await active.DisposeAsync().ConfigureAwait(false);
-        if (passive is not null)
-            await passive.DisposeAsync().ConfigureAwait(false);
+        if (host is not null)
+            await host.DisposeAsync().ConfigureAwait(false);
+        if (equipment is not null)
+            await equipment.DisposeAsync().ConfigureAwait(false);
         await ObserveCompletionAsync(activePump).ConfigureAwait(false);
         await ObserveCompletionAsync(passivePump).ConfigureAwait(false);
         cancellation?.Dispose();
         State = HsmsSessionState.Disconnected;
     }
 
-    private HsmsConnection RequireActive()
-        => _active ??
+    private SecsHost RequireActive()
+        => _host ??
             throw new InvalidOperationException(
                 "演示连接尚未建立。");
 
@@ -487,6 +732,24 @@ internal sealed class GuidedDemoSession : IAsyncDisposable
         }
         catch (OperationCanceledException)
         {
+        }
+    }
+
+    private sealed class DemoClock : IGemClock
+    {
+        public ValueTask<DateTimeOffset> GetCurrentTimeAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(DateTimeOffset.UtcNow);
+        }
+
+        public ValueTask<bool> SetCurrentTimeAsync(
+            DateTimeOffset value,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(false);
         }
     }
 }

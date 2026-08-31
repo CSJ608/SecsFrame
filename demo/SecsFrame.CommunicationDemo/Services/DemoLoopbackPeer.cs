@@ -28,6 +28,11 @@ internal sealed class DemoLoopbackPeer : IAsyncDisposable
         return new DemoLoopbackPeer(options);
     }
 
+    public Task<HsmsDataMessage?> SendAsync(
+        SecsMessage primary,
+        CancellationToken cancellationToken = default)
+        => _connection.SendAsync(primary, cancellationToken);
+
     public async ValueTask DisposeAsync()
     {
         _cancellation.Cancel();

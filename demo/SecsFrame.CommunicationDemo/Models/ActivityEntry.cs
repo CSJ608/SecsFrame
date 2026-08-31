@@ -7,4 +7,5 @@ internal sealed record ActivityEntry(
     string Category,
     string Title,
     string Summary,
-    string? Detail);
+    string? Detail,
+    ActivityDetailKind DetailKind = ActivityDetailKind.None);

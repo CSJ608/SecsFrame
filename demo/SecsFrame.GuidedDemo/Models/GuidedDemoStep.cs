@@ -28,5 +28,21 @@ internal sealed record GuidedDemoStep(
                 5,
                 "恢复会话",
                 "Separate 与新代次"),
+            new GuidedDemoStep(
+                6,
+                "建立 GEM 通讯",
+                "公共服务与双方身份"),
+            new GuidedDemoStep(
+                7,
+                "读取动态变量",
+                "运行期 SVID 与实际值"),
+            new GuidedDemoStep(
+                8,
+                "导出脱敏 Trace",
+                "结构化规则与严格 codec"),
+            new GuidedDemoStep(
+                9,
+                "捕获 T3 诊断",
+                "真实超时与受限字段"),
         };
 }
