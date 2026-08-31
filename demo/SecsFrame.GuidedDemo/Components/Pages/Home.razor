@@ -4,6 +4,8 @@
 
 <PageTitle>SecsFrame 分步演示</PageTitle>
 
+<a class="skip-link" href="#tour-main">跳到主要内容</a>
+
 <div class="tour-shell">
     <header class="tour-header">
         <div class="brand-block">
@@ -13,18 +15,28 @@
                 <p>SecsFrame Guided Demo</p>
             </div>
         </div>
-        <div class="session-state" aria-live="polite">
-            <span class="state-dot state-@Session.State.ToString().ToLowerInvariant()"></span>
+        <div class="session-state"
+             role="status"
+             aria-live="polite"
+             aria-atomic="true">
+            <span class="state-dot state-@Session.State.ToString().ToLowerInvariant()"
+                  aria-hidden="true"></span>
             <span>@Session.State</span>
         </div>
     </header>
 
-    <div class="tour-progress" aria-label="演示进度">
+    <div class="tour-progress"
+         role="progressbar"
+         aria-label="演示进度"
+         aria-valuemin="0"
+         aria-valuemax="100"
+         aria-valuenow="@Session.ProgressPercent"
+         aria-valuetext="已完成 @Session.Results.Count / @Session.Steps.Count 步">
         <div class="tour-progress-bar"
              style="width: @(Session.ProgressPercent)%"></div>
     </div>
 
-    <main class="tour-layout">
+    <main id="tour-main" class="tour-layout" tabindex="-1">
         <aside class="step-rail" aria-label="演示步骤">
             <div class="rail-heading">
                 <span>演示流程</span>
@@ -35,18 +47,29 @@
                 {
                     var step = Session.Steps[index];
                     var state = StepState(index);
-                    <li class="step-item @state">
+                    <li class="step-item @state"
+                        aria-current="@(state == "is-active" ? "step" : null)">
                         <span class="step-number">@step.Number.ToString("00")</span>
                         <div>
                             <strong>@step.Name</strong>
                             <span>@step.Focus</span>
+                            @if (state == "is-complete")
+                            {
+                                <span class="sr-only">已完成</span>
+                            }
+                            else if (state == "is-active")
+                            {
+                                <span class="sr-only">当前步骤</span>
+                            }
                         </div>
                     </li>
                 }
             </ol>
         </aside>
 
-        <section class="stage" aria-live="polite">
+        <section class="stage"
+                 aria-labelledby="stage-title"
+                 aria-busy="@Session.IsBusy.ToString().ToLowerInvariant()">
             <div class="stage-kicker">
                 @if (!Session.IsStarted)
                 {
@@ -63,7 +86,9 @@
             </div>
 
             <div class="stage-heading">
-                <h2>@StageTitle</h2>
+                <h2 id="stage-title"
+                    tabindex="-1"
+                    @ref="_stageHeading">@StageTitle</h2>
                 <p>@StageSummary</p>
             </div>
 
@@ -100,7 +125,8 @@
                             <span>@current.CodeLabel</span>
                             <span>实际执行产物</span>
                         </div>
-                        <pre>@current.Code</pre>
+                        <pre tabindex="0"
+                             aria-label="@current.CodeLabel">@current.Code</pre>
                     </div>
                 }
             }
@@ -121,26 +147,26 @@
                     <button type="button"
                             class="button button-primary"
                             disabled="@Session.IsBusy"
-                            @onclick="Session.StartAsync">开始演示</button>
+                            @onclick="StartAsync">开始演示</button>
                 }
                 else if (Session.IsComplete)
                 {
                     <button type="button"
                             class="button button-secondary"
                             disabled="@Session.IsBusy"
-                            @onclick="Session.RestartAsync">重新演示</button>
+                            @onclick="RestartAsync">重新演示</button>
                 }
                 else
                 {
                     <button type="button"
                             class="button button-primary"
                             disabled="@Session.IsBusy"
-                            @onclick="Session.NextAsync">@NextActionLabel</button>
+                            @onclick="NextAsync">@NextActionLabel</button>
                 }
             </div>
         </section>
 
-        <aside class="evidence-rail">
+        <aside class="evidence-rail" aria-label="已验证结果">
             <div class="rail-heading">
                 <span>已验证</span>
                 <strong>@Session.Results.Count</strong>
@@ -178,6 +204,8 @@
 </div>
 
 @code {
+    private ElementReference _stageHeading;
+
     private string StageTitle
     {
         get
@@ -228,6 +256,21 @@
 
     public void Dispose()
         => Session.Changed -= HandleSessionChanged;
+
+    private async Task StartAsync()
+        => await RunStepAsync(Session.StartAsync);
+
+    private async Task NextAsync()
+        => await RunStepAsync(Session.NextAsync);
+
+    private async Task RestartAsync()
+        => await RunStepAsync(Session.RestartAsync);
+
+    private async Task RunStepAsync(Func<Task> action)
+    {
+        await action();
+        await _stageHeading.FocusAsync(preventScroll: true);
+    }
 
     private string StepState(int index)
     {

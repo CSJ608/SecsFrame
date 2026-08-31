@@ -40,3 +40,6 @@ jobs:
               dotnet test test/SecsFrame.Secs4NetInterop.Tests/SecsFrame.Secs4NetInterop.Tests.csproj -c Release --no-build -f "$fw"
             fi
           done
+          if [[ " $FRAMEWORKS " == *" net8.0 "* ]]; then
+            dotnet test test/SecsFrame.Demo.Tests/SecsFrame.Demo.Tests.csproj -c Release --no-build
+          fi

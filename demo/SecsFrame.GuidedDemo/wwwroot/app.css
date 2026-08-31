@@ -29,6 +29,44 @@ button:disabled {
     opacity: 0.58;
 }
 
+.skip-link {
+    position: fixed;
+    top: 8px;
+    left: -10000px;
+    z-index: 10;
+    padding: 10px 14px;
+    color: #ffffff;
+    background: #17201d;
+    border: 2px solid #73d7b9;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+.skip-link:focus {
+    left: 8px;
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+button:focus-visible,
+a:focus-visible {
+    outline: 3px solid #d87931;
+    outline-offset: 3px;
+}
+
+.tour-layout:focus {
+    outline: 0;
+}
+
 .tour-shell {
     min-height: 100vh;
 }
@@ -258,6 +296,11 @@ button:disabled {
     font-weight: 600;
 }
 
+.stage-heading h2:focus-visible {
+    outline: 3px solid #d87931;
+    outline-offset: 4px;
+}
+
 .stage-heading p {
     max-width: 650px;
     margin: 8px 0 0;
@@ -406,6 +449,11 @@ button:disabled {
     line-height: 1.5;
     white-space: pre-wrap;
     word-break: break-word;
+}
+
+.code-evidence pre:focus-visible {
+    outline: 3px solid #d87931;
+    outline-offset: 2px;
 }
 
 .stage-actions {

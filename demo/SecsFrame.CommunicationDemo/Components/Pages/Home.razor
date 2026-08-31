@@ -5,6 +5,8 @@
 
 <PageTitle>SecsFrame 通讯测试工具</PageTitle>
 
+<a class="skip-link" href="#tool-main">跳到主要内容</a>
+
 <div class="tool-shell">
     <header class="tool-header">
         <div class="brand-block">
@@ -14,25 +16,33 @@
                 <p>SecsFrame 工程演示</p>
             </div>
         </div>
-        <div class="connection-summary" aria-live="polite">
-            <span class="state-dot state-@Workspace.State.ToString().ToLowerInvariant()"></span>
+        <div class="connection-summary"
+             role="status"
+             aria-live="polite"
+             aria-atomic="true">
+            <span class="state-dot state-@Workspace.State.ToString().ToLowerInvariant()"
+                  aria-hidden="true"></span>
             <strong>@Workspace.State</strong>
             <span>@Workspace.Endpoint</span>
         </div>
     </header>
 
-    <main class="tool-main">
-        <section class="tool-pane connection-pane @(Workspace.IsConnected ? null : "is-focus")">
+    <main id="tool-main"
+          class="tool-main"
+          tabindex="-1"
+          aria-busy="@Workspace.IsBusy.ToString().ToLowerInvariant()">
+        <section class="tool-pane connection-pane @(Workspace.IsConnected ? null : "is-focus")"
+                 aria-labelledby="connection-heading">
             <div class="pane-heading">
                 <div>
                     <span class="step-label">01</span>
-                    <h2>连接</h2>
+                    <h2 id="connection-heading">连接</h2>
                 </div>
             </div>
 
             <EditForm Model="_draft" OnValidSubmit="ConnectAsync">
                 <DataAnnotationsValidator />
-                <ValidationSummary class="validation-summary" />
+                <ValidationSummary class="validation-summary" role="alert" />
 
                 <label class="check-row">
                     <InputCheckbox @bind-Value="_draft.UseLoopbackPeer"
@@ -114,24 +124,23 @@
             </EditForm>
         </section>
 
-        <section class="tool-pane message-pane @(Workspace.State == HsmsSessionState.Selected ? "is-focus" : null)">
+        <section class="tool-pane message-pane @(Workspace.State == HsmsSessionState.Selected ? "is-focus" : null)"
+                 aria-labelledby="message-heading">
             <div class="pane-heading">
                 <div>
                     <span class="step-label">02</span>
-                    <h2>消息</h2>
+                    <h2 id="message-heading">消息</h2>
                 </div>
                 <span class="editor-status">@EditorStatus</span>
             </div>
 
-            <div class="mode-switch" role="tablist" aria-label="消息操作模式">
+            <div class="mode-switch" role="group" aria-label="消息操作模式">
                 <button type="button"
-                        role="tab"
-                        aria-selected="@(!_replyMode)"
+                        aria-pressed="@((!_replyMode).ToString().ToLowerInvariant())"
                         class="@(!_replyMode ? "is-active" : null)"
                         @onclick="UsePrimaryMode">发送 Primary</button>
                 <button type="button"
-                        role="tab"
-                        aria-selected="@_replyMode"
+                        aria-pressed="@_replyMode.ToString().ToLowerInvariant()"
                         class="@(_replyMode ? "is-active" : null)"
                         disabled="@(Workspace.PendingReplies.Count == 0)"
                         @onclick="UseReplyMode">
@@ -254,11 +263,12 @@
             </div>
         </section>
 
-        <section class="tool-pane activity-pane">
+        <section class="tool-pane activity-pane"
+                 aria-labelledby="activity-heading">
             <div class="pane-heading">
                 <div>
                     <span class="step-label">03</span>
-                    <h2>活动与诊断</h2>
+                    <h2 id="activity-heading">活动与诊断</h2>
                 </div>
                 <span class="editor-status">
                     @FilteredActivities.Count / @Workspace.Activities.Count
@@ -325,7 +335,16 @@
                 <p class="operation-error" role="alert">@_exportError</p>
             }
 
-            <div class="activity-feed" aria-live="polite">
+            <span class="sr-only"
+                  role="status"
+                  aria-live="polite"
+                  aria-atomic="true">
+                活动记录 @Workspace.Activities.Count 条，当前显示
+                @FilteredActivities.Count 条
+            </span>
+            <div class="activity-feed"
+                 role="region"
+                 aria-labelledby="activity-heading">
                 @if (Workspace.Activities.Count == 0)
                 {
                     <div class="empty-state">

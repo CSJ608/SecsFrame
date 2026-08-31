@@ -128,6 +128,12 @@ dotnet test SecsFrame.slnx -c Release --no-build
 
 ## Demo
 
+统一启动两个 Demo：
+
+```bash
+dotnet run --project demo/SecsFrame.DemoLauncher/SecsFrame.DemoLauncher.csproj
+```
+
 通讯测试工具：
 
 ```bash
@@ -139,6 +145,16 @@ dotnet run --project demo/SecsFrame.CommunicationDemo/SecsFrame.CommunicationDem
 ```bash
 dotnet run --project demo/SecsFrame.GuidedDemo/SecsFrame.GuidedDemo.csproj
 ```
+
+生成含统一启动脚本的 framework-dependent .NET 8 发布包：
+
+```powershell
+pwsh ./eng/publish-demos.ps1
+```
+
+ZIP 输出为 <code>artifacts/SecsFrame-Demos-net8.0.zip</code>；也可手动运行
+<code>demo-package</code> 工作流生成并下载相同布局的产物。包内启动器默认
+只绑定本机回环地址，等待两个应用及其静态资源就绪后再打开浏览器。
 
 两个 Demo 均为本机 Interactive Server 应用。默认分别使用
 <http://localhost:5080> 与 <http://localhost:5081>；工程回环和固定脚本

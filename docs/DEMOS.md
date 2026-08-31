@@ -49,6 +49,38 @@
 
 ## 当前工程
 
+### 统一启动与发布
+
+从源码统一启动两个 Demo：
+
+~~~bash
+dotnet run --project demo/SecsFrame.DemoLauncher/SecsFrame.DemoLauncher.csproj
+~~~
+
+启动器默认只接受 <code>http://127.0.0.1</code> 回环端点，分别使用 5080
+和 5081 端口。它启动两个子进程、等待包含静态资源检查的专用健康端点，随后
+打开两个实际体验页；任一子进程提前退出时会停止另一进程。使用
+<code>--help</code> 查看改端口、禁止自动打开浏览器及一次性启动验证选项。
+
+生成 framework-dependent .NET 8 发布包：
+
+~~~powershell
+pwsh ./eng/publish-demos.ps1
+~~~
+
+脚本使用 <code>artifacts/demo-package-build</code> 隔离构建输出，不覆盖正在
+运行的项目 <code>bin</code> 目录；它生成可解压后运行的
+<code>artifacts/demo-package</code> 和
+<code>artifacts/SecsFrame-Demos-net8.0.zip</code>。包内含 Windows 与
+Linux/macOS 启动脚本、源提交清单、许可证和边界说明，需要 .NET 8
+ASP.NET Core Runtime。清单同时记录工作区 Dirty 标志，避免本地未提交包被
+误认为精确对应源提交。手动 <code>demo-package</code> 工作流执行相同打包
+和发布后启动验证，并保留 ZIP 产物 14 天。
+
+两个页面现在提供跳到主要内容、明确可见的键盘焦点、区域与忙碌状态语义；
+分步演示另提供 progressbar/当前步骤语义，并在每个实际动作完成后把焦点
+移动到结果标题。窄屏控件维持至少 44px 的主要触达高度。
+
 ### 通讯工具
 
 运行：
@@ -113,7 +145,7 @@ GEM 步骤直接使用 <code>GemHostServices</code>、
 | D2 | 已完成 | 分步演示首条核心 HSMS 导览 | 五步实际动作与证据；Release 编译；1440px/390px 无横向溢出 |
 | D3 | 已完成 | 通讯工具入站回复、会话内收藏、日志筛选/脱敏导出 | 两级数据分级且无 Raw；真实回环入站回复；Demo 自动化测试 |
 | D4 | 已完成 | 分步演示 GEM 基础与 Trace/诊断场景 | 九步真实动作；公共 GEM/Trace API；真实 T3；Demo 自动化测试 |
-| D5 | 下一会话 | 启动器、发布打包、可访问性与用户试用修正 | 可重复安装/启动；键盘与窄屏完整走通 |
+| D5 | 进行中 | 启动器、发布打包、可访问性与用户试用修正 | ZIP 发布与双应用启动验证已通过；SSR/静态资源已核对；390px 截图和真实 Tab/焦点浏览器验收待完成 |
 
 ## 跨会话接续
 

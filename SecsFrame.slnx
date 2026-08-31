@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/demo/">
     <Project Path="demo/SecsFrame.CommunicationDemo/SecsFrame.CommunicationDemo.csproj" />
+    <Project Path="demo/SecsFrame.DemoLauncher/SecsFrame.DemoLauncher.csproj" />
     <Project Path="demo/SecsFrame.GuidedDemo/SecsFrame.GuidedDemo.csproj" />
   </Folder>
   <Folder Name="/src/">

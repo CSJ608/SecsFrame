@@ -1,0 +1,34 @@
+name: demo-package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Publish Demo package
+        shell: pwsh
+        run: ./eng/publish-demos.ps1
+      - name: Verify packaged startup
+        run: >-
+          dotnet
+          artifacts/demo-package/launcher/SecsFrame.DemoLauncher.dll
+          --verify-startup
+          --startup-timeout-seconds 60
+      - name: Upload Demo package
+        uses: actions/upload-artifact@v7
+        with:
+          name: SecsFrame-Demos-net8.0
+          path: artifacts/SecsFrame-Demos-net8.0.zip
+          if-no-files-found: error
+          retention-days: 14

@@ -13,6 +13,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\demo\SecsFrame.CommunicationDemo\SecsFrame.CommunicationDemo.csproj" />
+    <ProjectReference Include="..\..\demo\SecsFrame.DemoLauncher\SecsFrame.DemoLauncher.csproj" />
     <ProjectReference Include="..\..\demo\SecsFrame.GuidedDemo\SecsFrame.GuidedDemo.csproj" />
   </ItemGroup>
   <ItemGroup>
