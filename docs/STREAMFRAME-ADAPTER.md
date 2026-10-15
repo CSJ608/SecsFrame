@@ -2,7 +2,7 @@
 
 ## 上游基线
 
-SecsFrame 固定依赖官方 [StreamFrame 2.6.0](https://www.nuget.org/packages/StreamFrame/2.6.0)。
+SecsFrame 固定依赖官方 [StreamFrame 2.7.0](https://www.nuget.org/packages/StreamFrame/2.7.0)。
 2.3.0 已经解决此前跟踪的两项能力缺口：
 
 - [#38](https://github.com/CSJ608/StreamFrame/issues/38) / [PR #41](https://github.com/CSJ608/StreamFrame/pull/41)：
@@ -41,6 +41,16 @@ ID 一样在 Connected 发布点分配，闭合状态已经对外可见但会话
 推断故障归属，并可安全公开迟到旧会话错误。详见
 [2.6.0 发布说明](https://github.com/CSJ608/StreamFrame/releases/tag/v2.6.0)
 和 [Issue #56](https://github.com/CSJ608/StreamFrame/issues/56)。
+
+2.7.0 不移除或变更 SecsFrame 使用的公共契约，修复集中在连接生命周期：
+并发 Dispose 与重连/连接成功竞速时终态不再被迟到发布翻转；回调内同步
+<code>Reconnect</code> 不再撕裂新会话 Socket；被取代接受循环迟到完成
+的接入照常发布 Connected 并建立会话；监听 Socket 绑定失败会释放并自动
+重试；坏长度头后缓冲中的完整帧继续交付；KeepAlive 正毫秒值在现代 .NET
+按秒向上取整。适配层不依赖回调内重入，迟到接入收编与既有 Connected
+防御和 Passive 重连竞态测试一致。详见
+[2.7.0 发布说明](https://github.com/CSJ608/StreamFrame/releases/tag/v2.7.0)
+和 [Issue #68](https://github.com/CSJ608/StreamFrame/issues/68)。
 
 SecsFrame 不再维护基于原始字节回调的 T8 监视器、发送确认计数器、会话
 信封 codec 或自建 TCP Session ID。内部 <code>IHsmsTransport</code> 现可在
@@ -115,7 +125,7 @@ fault 事件，且只有 IncompleteFrameTimeout 会成为 T8 关闭原因。
 恢复、Session ID 单调递增和原会话精确关闭。完整套件继续覆盖 T3/T6 从
 发送完成点启动以及旧会话不重放。
 
-这些测试证明当前工程契约与 StreamFrame 2.6.0 的互操作行为，不构成
+这些测试证明当前工程契约与 StreamFrame 2.7.0 的互操作行为，不构成
 SEMI 合规声明。T5/T8 的标准默认值、精确启停边界和异常恢复仍须依据团队
 合法获得的 SEMI E37/E37.1 版本及一致性测试核对。仓库不得提交标准正文、
 表格或 Schema。

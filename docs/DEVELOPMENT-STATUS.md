@@ -20,10 +20,10 @@ GitHub Issue/Actions：
 
 ## 当前基线
 
-截至 2026-08-31，本切片在 StreamFrame 2.6.0 与独立 session soak 基线上
+截至 2026-10-15，本切片在 StreamFrame 2.7.0 与独立 session soak 基线上
 继续开发，当前基线为：
 
-- StreamFrame 固定为官方 NuGet `2.6.0`。
+- StreamFrame 固定为官方 NuGet `2.7.0`。
 - secs4net 互操作测试固定为 nuget.org 官方 `3.1.0`，不得改用源码引用或
   非官方包。
 - SML 调试读写、已解码消息 Trace 导出、结构化脱敏、受控及时序重放、
