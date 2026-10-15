@@ -30,9 +30,11 @@
 
 阶段 1 的工程能力已经形成完整基础链路，StreamFrame #38/#39 的正式包
 迁移与 2.3.1 会话隔离修复已经完成；2.4.0 又收口发布窗口 epoch 并加固
-Passive 监听。当前固定 2.6.0，并增加接受循环代次门控、自适应发送缓冲、
-四类故障原始 Session 和快照完整性元数据的本地回归证据。后续切片继续
-扩展 GEM 通用行为。任何
+Passive 监听，2.5.0/2.6.0 相继增加接受循环代次门控、自适应发送缓冲和
+四类故障原始 Session 与快照完整性元数据。当前固定 2.7.0，获得重连/
+停机/回调重入竞态守门、迟到 Passive 接入收编语义、监听绑定失败自动
+恢复、坏头后完整帧交付和 KeepAlive 单位修正，适配层公共契约不变。
+后续切片继续扩展 GEM 通用行为。任何
 标准默认值
 和完整合规结论都依赖团队合法获得的 E37/E37.1 及相关 GEM 标准副本与
 一致性测试。
@@ -128,7 +130,7 @@ Body、原始线上字节、transport generation 或时间戳。后续故障原�
 已先覆盖公共事件中忠实保留的完整 data frame：捕获分为 MetadataOnly、
 RedactedPayload 与 RawPayload，payload codec 默认关闭，声明脱敏范围必须
 全为零且可严格复核。它不包含 TCP 长度前缀或分片，也不能进入重放。
-运输故障现通过默认关闭的独立流与 StreamFrame 2.6.0 报告的原始 transport
+运输故障现通过默认关闭的独立流与 StreamFrame 2.7.0 报告的原始 transport
 Session ID 关联；四种错误都保留实际字节数与截断状态，队列容量有界、满时
 丢弃最旧项。SecsFrame 统一最多保留 8 KiB 前缀，再按 MetadataOnly、
 RedactedPayload 或 RawPayload 捕获，payload codec 默认关闭。该前缀可能含
