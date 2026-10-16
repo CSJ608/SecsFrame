@@ -174,6 +174,79 @@ public sealed class HsmsConnectionOptionsTests
                     (long)int.MaxValue + 1)));
     }
 
+    [Fact]
+    public void Reference_timers_match_commonly_deployed_values()
+    {
+        Assert.Equal(
+            TimeSpan.FromSeconds(45),
+            HsmsConnectionOptions.ReferenceT3);
+        Assert.Equal(
+            TimeSpan.FromSeconds(10),
+            HsmsConnectionOptions.ReferenceT5);
+        Assert.Equal(
+            TimeSpan.FromSeconds(5),
+            HsmsConnectionOptions.ReferenceT6);
+        Assert.Equal(
+            TimeSpan.FromSeconds(10),
+            HsmsConnectionOptions.ReferenceT7);
+        Assert.Equal(
+            TimeSpan.FromSeconds(5),
+            HsmsConnectionOptions.ReferenceT8);
+    }
+
+    [Fact]
+    public void Reference_timer_factory_fills_all_timers()
+    {
+        var options = HsmsConnectionOptions.CreateWithReferenceTimers(
+            IPAddress.Loopback,
+            5000,
+            HsmsConnectionMode.Passive,
+            10);
+
+        Assert.Equal(IPAddress.Loopback, options.IpAddress);
+        Assert.Equal(5000, options.Port);
+        Assert.Equal(HsmsConnectionMode.Passive, options.ConnectionMode);
+        Assert.Equal(10, options.SessionId);
+        Assert.Equal(HsmsConnectionOptions.ReferenceT3, options.T3);
+        Assert.Equal(HsmsConnectionOptions.ReferenceT5, options.T5);
+        Assert.Equal(HsmsConnectionOptions.ReferenceT6, options.T6);
+        Assert.Equal(HsmsConnectionOptions.ReferenceT7, options.T7);
+        Assert.Equal(HsmsConnectionOptions.ReferenceT8, options.T8);
+        Assert.False(options.EnableControlMessageObservation);
+        Assert.False(options.EnableTransportFaultObservation);
+        Assert.Equal(
+            HsmsConnectionOptions.DefaultTransportFaultObservationCapacity,
+            options.TransportFaultObservationCapacity);
+    }
+
+    [Fact]
+    public void Reference_timer_factory_passes_through_observation_settings()
+    {
+        var options = HsmsConnectionOptions.CreateWithReferenceTimers(
+            IPAddress.Loopback,
+            5000,
+            HsmsConnectionMode.Active,
+            10,
+            enableControlMessageObservation: true,
+            enableTransportFaultObservation: true,
+            transportFaultObservationCapacity: 7);
+
+        Assert.True(options.EnableControlMessageObservation);
+        Assert.True(options.EnableTransportFaultObservation);
+        Assert.Equal(7, options.TransportFaultObservationCapacity);
+    }
+
+    [Fact]
+    public void Reference_timer_factory_applies_the_same_input_validation()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            HsmsConnectionOptions.CreateWithReferenceTimers(
+                IPAddress.Loopback,
+                port: 0,
+                HsmsConnectionMode.Active,
+                10));
+    }
+
     private static HsmsConnectionOptions Create(
         IPAddress? ipAddress = null,
         int port = 5000,

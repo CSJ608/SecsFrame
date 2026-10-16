@@ -30,6 +30,11 @@
 
 ### 新增
 
+- 公共 <code>HsmsConnectionOptions</code> 增加工程参考计时器值
+  <code>ReferenceT3</code>–<code>ReferenceT8</code> 与
+  <code>CreateWithReferenceTimers</code> 便捷工厂；参考值与 MIT 许可的
+  Secs4Net 实现及通行 HSMS-SS 部署实践交叉参照，未经授权 E37/E37.1 核对，
+  不构成标准默认值声明，显式构造路径保持不变。
 - 增加本机 <code>SecsFrame.CommunicationDemo</code> 通讯测试工具，提供
   Active/Passive 显式连接配置、真实 TCP 回环、严格 SML 编辑与样例、
   数据/控制消息操作，以及最多 500 条的会话内活动和结构化诊断视图。
