@@ -11,6 +11,46 @@ public sealed class HsmsConnectionOptions
     /// <summary>The default number of retained T8 observations.</summary>
     public const int DefaultTransportFaultObservationCapacity = 16;
 
+    /// <summary>The engineering reference T3 reply timeout, 45 seconds.</summary>
+    /// <remarks>
+    /// Cross-referenced with the MIT-licensed Secs4Net implementation and
+    /// common HSMS-SS deployment practice; not verified against an authorized
+    /// SEMI E37/E37.1 copy and not a claim of standard default values.
+    /// </remarks>
+    public static readonly TimeSpan ReferenceT3 = TimeSpan.FromSeconds(45);
+
+    /// <summary>The engineering reference T5 connect retry interval, 10 seconds.</summary>
+    /// <remarks>
+    /// Cross-referenced with the MIT-licensed Secs4Net implementation and
+    /// common HSMS-SS deployment practice; not verified against an authorized
+    /// SEMI E37/E37.1 copy and not a claim of standard default values.
+    /// </remarks>
+    public static readonly TimeSpan ReferenceT5 = TimeSpan.FromSeconds(10);
+
+    /// <summary>The engineering reference T6 control reply timeout, 5 seconds.</summary>
+    /// <remarks>
+    /// Cross-referenced with the MIT-licensed Secs4Net implementation and
+    /// common HSMS-SS deployment practice; not verified against an authorized
+    /// SEMI E37/E37.1 copy and not a claim of standard default values.
+    /// </remarks>
+    public static readonly TimeSpan ReferenceT6 = TimeSpan.FromSeconds(5);
+
+    /// <summary>The engineering reference T7 selection timeout, 10 seconds.</summary>
+    /// <remarks>
+    /// Cross-referenced with the MIT-licensed Secs4Net implementation and
+    /// common HSMS-SS deployment practice; not verified against an authorized
+    /// SEMI E37/E37.1 copy and not a claim of standard default values.
+    /// </remarks>
+    public static readonly TimeSpan ReferenceT7 = TimeSpan.FromSeconds(10);
+
+    /// <summary>The engineering reference T8 incomplete-message timeout, 5 seconds.</summary>
+    /// <remarks>
+    /// Cross-referenced with the MIT-licensed Secs4Net implementation and
+    /// common HSMS-SS deployment practice; not verified against an authorized
+    /// SEMI E37/E37.1 copy and not a claim of standard default values.
+    /// </remarks>
+    public static readonly TimeSpan ReferenceT8 = TimeSpan.FromSeconds(5);
+
     /// <summary>Creates explicit HSMS connection settings.</summary>
     /// <param name="ipAddress">The remote address in Active mode or local bind address in Passive mode.</param>
     /// <param name="port">The TCP port, from 1 through 65535.</param>
@@ -96,6 +136,53 @@ public sealed class HsmsConnectionOptions
         EnableTransportFaultObservation = enableTransportFaultObservation;
         TransportFaultObservationCapacity = transportFaultObservationCapacity;
     }
+
+    /// <summary>
+    /// Creates connection settings that fill T3 through T8 with the
+    /// engineering reference values.
+    /// </summary>
+    /// <param name="ipAddress">The remote address in Active mode or local bind address in Passive mode.</param>
+    /// <param name="port">The TCP port, from 1 through 65535.</param>
+    /// <param name="connectionMode">Which peer initiates the TCP connection.</param>
+    /// <param name="sessionId">The protocol Session ID used by outgoing data messages.</param>
+    /// <param name="enableControlMessageObservation">
+    /// Enables the separate restricted-metadata control-message observation stream.
+    /// </param>
+    /// <param name="enableTransportFaultObservation">
+    /// Enables the separate bounded T8 prefix-snapshot observation stream.
+    /// </param>
+    /// <param name="transportFaultObservationCapacity">
+    /// The maximum queued T8 observations before the oldest item is discarded.
+    /// </param>
+    /// <remarks>
+    /// The reference timers are cross-referenced with the MIT-licensed
+    /// Secs4Net implementation and common HSMS-SS deployment practice. They
+    /// have not been verified against an authorized SEMI E37/E37.1 copy and
+    /// are not standard default values; callers that need audited values
+    /// must use the explicit constructor.
+    /// </remarks>
+    public static HsmsConnectionOptions CreateWithReferenceTimers(
+        IPAddress ipAddress,
+        int port,
+        HsmsConnectionMode connectionMode,
+        ushort sessionId,
+        bool enableControlMessageObservation = false,
+        bool enableTransportFaultObservation = false,
+        int transportFaultObservationCapacity =
+            DefaultTransportFaultObservationCapacity)
+        => new(
+            ipAddress,
+            port,
+            connectionMode,
+            sessionId,
+            ReferenceT3,
+            ReferenceT5,
+            ReferenceT6,
+            ReferenceT7,
+            ReferenceT8,
+            enableControlMessageObservation,
+            enableTransportFaultObservation,
+            transportFaultObservationCapacity);
 
     /// <summary>Gets the remote or local bind IP address.</summary>
     public IPAddress IpAddress { get; }

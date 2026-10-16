@@ -86,7 +86,11 @@ StreamFrame 的 <code>SessionExpiredException</code> 在内部边界转换为
 ## T5 与 T8
 
 内部 <code>HsmsTransportOptions</code> 要求调用方显式给出 T5 与 T8，
-不内置未经授权标准核对的默认值。Active 连接把 T5 映射为固定的
+不内置未经授权标准核对的默认值。公共 <code>HsmsConnectionOptions</code>
+另提供显式标注来源的 <code>ReferenceT3</code>–<code>ReferenceT8</code> 与
+<code>CreateWithReferenceTimers</code> 工厂；这些工程参考值与 MIT 许可的
+Secs4Net 实现及通行部署实践交叉参照，未经授权标准核对，也不改变显式
+构造路径的必填语义。Active 连接把 T5 映射为固定的
 <code>ConnectRetryDelayMs</code> 并关闭最大退避；Passive 监听重试配置
 保持调用方设置。原 <code>StreamConnectionOptions</code> 始终复制后再
 适配，不会被原地修改。

@@ -45,6 +45,89 @@ Host/Equipment 是后续业务能力角色，不由 Active/Passive 推断。
 整毫秒范围；Passive 监听重试不被解释成 T5。每个取值应依据团队合法获得
 的 E37/E37.1 版本、设备通信手册和互操作证据确定。
 
+## 应用配置绑定示例
+
+库本身不依赖任何配置框架，也不读取应用配置文件；下面的绑定代码属于
+宿主应用，展示在 ASP.NET Core 或通用主机中从 <code>appsettings.json</code>
+构造连接选项的一种推荐方式。
+
+~~~json
+{
+  "Hsms": {
+    "IpAddress": "192.0.2.10",
+    "Port": 5000,
+    "ConnectionMode": "Active",
+    "SessionId": 0,
+    "T3": "00:00:45",
+    "T5": "00:00:10",
+    "T6": "00:00:05",
+    "T7": "00:00:10",
+    "T8": "00:00:05"
+  }
+}
+~~~
+
+计时键使用标准 <code>TimeSpan</code> 文本格式，配置绑定器可以直接转换。
+把计时键声明为可空并从配置中省略，即可回退到工程参考值；参考值的来源
+与非标准核对口径见
+[STREAMFRAME-ADAPTER.md](STREAMFRAME-ADAPTER.md)。
+
+~~~csharp
+public sealed class HsmsConnectionSettings
+{
+    public string IpAddress { get; set; } = "";
+    public int Port { get; set; }
+    public HsmsConnectionMode ConnectionMode { get; set; }
+    public ushort SessionId { get; set; }
+    public TimeSpan? T3 { get; set; }
+    public TimeSpan? T5 { get; set; }
+    public TimeSpan? T6 { get; set; }
+    public TimeSpan? T7 { get; set; }
+    public TimeSpan? T8 { get; set; }
+
+    public HsmsConnectionOptions ToConnectionOptions()
+    {
+        if (string.IsNullOrWhiteSpace(IpAddress))
+        {
+            throw new InvalidOperationException(
+                "The Hsms:IpAddress configuration value is required.");
+        }
+
+        return new HsmsConnectionOptions(
+            IPAddress.Parse(IpAddress),
+            Port,
+            ConnectionMode,
+            SessionId,
+            T3 ?? HsmsConnectionOptions.ReferenceT3,
+            T5 ?? HsmsConnectionOptions.ReferenceT5,
+            T6 ?? HsmsConnectionOptions.ReferenceT6,
+            T7 ?? HsmsConnectionOptions.ReferenceT7,
+            T8 ?? HsmsConnectionOptions.ReferenceT8);
+    }
+}
+~~~
+
+在主机启动时绑定并注册，让非法输入在启动期立即失败：
+
+~~~csharp
+builder.Services.AddSingleton(_ =>
+{
+    var settings = builder.Configuration
+        .GetSection("Hsms")
+        .Get<HsmsConnectionSettings>()
+        ?? throw new InvalidOperationException(
+            "The 'Hsms' configuration section is missing.");
+
+    return settings.ToConnectionOptions();
+});
+~~~
+
+<code>HsmsConnectionOptions</code> 构造函数继续承担全部边界校验：端口
+区间、控制 Session ID、T5/T8 的整毫秒与范围约束在绑定时立即抛出参数
+异常，宿主应用应让它在启动期中断而不是捕获吞掉。该示例只组装启动
+参数，不改变连接生命周期——修改配置后需要构造新的选项和连接，已建立
+的连接不支持运行中调整计时器。
+
 ## 生命周期
 
 ~~~csharp
